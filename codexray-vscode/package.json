@@ -2,7 +2,7 @@
   "name": "codexray",
   "displayName": "CodeXray",
   "description": "A source-code X-ray for manual security review of Python. Not a scanner — surfaces entry points, sinks, taint sources, blind spots, and a coverage ledger. The analyst decides.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "codexray",
   "license": "MIT",
   "repository": {
@@ -10,7 +10,7 @@
     "url": "https://github.com/yashwanthgk88/codexray"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Other",
@@ -23,7 +23,10 @@
     "sast",
     "code review"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:codexray.analyzeWorkspace",
+    "onCommand:codexray.analyzeFolder"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -57,13 +60,13 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "1.75.1",
+    "@vscode/vsce": "^2.24.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.4.0",
-    "@vscode/vsce": "^2.24.0"
+    "typescript": "^5.4.0"
   },
   "dependencies": {
-    "web-tree-sitter": "^0.22.6",
-    "tree-sitter-wasms": "^0.1.11"
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.22.6"
   }
 }

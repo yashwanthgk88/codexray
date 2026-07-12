@@ -10,38 +10,66 @@ const IGNORE_DIRS = new Set([
 ]);
 const MAX_FILES = 4000;
 
+let out: vscode.OutputChannel;
+function log(msg: string): void {
+  out.appendLine(`[${new Date().toISOString()}] ${msg}`);
+}
+
+/** Run a command body with a single guaranteed-visible failure path. */
+async function guard(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.stack || err.message : String(err);
+    log("UNCAUGHT: " + msg);
+    out.show(true);
+    void vscode.window.showErrorMessage(
+      `CodeXray failed: ${err instanceof Error ? err.message : String(err)} (see the CodeXray output channel)`
+    );
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
+  out = vscode.window.createOutputChannel("CodeXray");
+  context.subscriptions.push(out);
+  log("CodeXray activated. extensionPath=" + context.extensionPath);
+
   context.subscriptions.push(
-    vscode.commands.registerCommand("codexray.analyzeWorkspace", async () => {
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) {
-        vscode.window.showErrorMessage("CodeXray: open a folder or workspace first.");
-        return;
-      }
-      let target = folders[0].uri;
-      if (folders.length > 1) {
-        const pick = await vscode.window.showWorkspaceFolderPick({
-          placeHolder: "Which folder should CodeXray X-ray?",
-        });
-        if (!pick) return;
-        target = pick.uri;
-      }
-      await analyzeAndShow(context, target);
-    }),
-    vscode.commands.registerCommand(
-      "codexray.analyzeFolder",
-      async (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand("codexray.analyzeWorkspace", () =>
+      guard(async () => {
+        log("command: analyzeWorkspace");
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) {
+          void vscode.window.showErrorMessage(
+            "CodeXray: open a folder or workspace first (File → Open Folder…)."
+          );
+          return;
+        }
+        let target = folders[0].uri;
+        if (folders.length > 1) {
+          const pick = await vscode.window.showWorkspaceFolderPick({
+            placeHolder: "Which folder should CodeXray X-ray?",
+          });
+          if (!pick) return;
+          target = pick.uri;
+        }
+        await analyzeAndShow(context, target);
+      })
+    ),
+    vscode.commands.registerCommand("codexray.analyzeFolder", (uri?: vscode.Uri) =>
+      guard(async () => {
+        log("command: analyzeFolder uri=" + (uri ? uri.fsPath : "none"));
         let target = uri;
         if (!target) {
           const folders = vscode.workspace.workspaceFolders;
           target = folders && folders.length ? folders[0].uri : undefined;
         }
         if (!target) {
-          vscode.window.showErrorMessage("CodeXray: no folder selected.");
+          void vscode.window.showErrorMessage("CodeXray: no folder selected.");
           return;
         }
         await analyzeAndShow(context, target);
-      }
+      })
     )
   );
 }
@@ -95,7 +123,9 @@ async function analyzeAndShow(
     },
     async (progress) => {
       progress.report({ message: "collecting Python files" });
+      log("scanning " + root);
       const files = collectPythonFiles(root);
+      log(`found ${files.length} .py file(s)`);
       if (files.length === 0) {
         vscode.window.showWarningMessage(
           `CodeXray: no .py files found under ${path.basename(root)}.`
@@ -110,18 +140,13 @@ async function analyzeAndShow(
 
       progress.report({ message: "initialising parser" });
       const wasmDir = path.join(context.extensionPath, "dist");
-      let payload: any;
-      try {
-        const parser = await getParser(wasmDir);
-        progress.report({ message: `analyzing ${files.length} file(s)` });
-        const model = buildModel(root, files, parser);
-        payload = buildPayload(model);
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `CodeXray failed: ${err instanceof Error ? err.message : String(err)}`
-        );
-        return;
-      }
+      log("initialising tree-sitter from " + wasmDir);
+      const parser = await getParser(wasmDir);
+      log("parser ready; analyzing");
+      progress.report({ message: `analyzing ${files.length} file(s)` });
+      const model = buildModel(root, files, parser);
+      const payload = buildPayload(model);
+      log(`analysis done: ${JSON.stringify(model.stats)}`);
 
       const panel = vscode.window.createWebviewPanel(
         "codexray",
@@ -135,6 +160,7 @@ async function analyzeAndShow(
         "__PAYLOAD__",
         JSON.stringify(payload).replace(/</g, "\\u003c")
       );
+      log("webview rendered");
     }
   );
 }
