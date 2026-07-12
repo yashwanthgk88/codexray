@@ -29,9 +29,23 @@ async function guard(fn: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Empty tree provider — its only job is to host the Activity Bar welcome view
+ *  (the "X-ray Workspace" button lives in viewsWelcome in package.json). */
+class CodeXrayViewProvider implements vscode.TreeDataProvider<never> {
+  getTreeItem(): vscode.TreeItem {
+    return new vscode.TreeItem("");
+  }
+  getChildren(): never[] {
+    return [];
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   out = vscode.window.createOutputChannel("CodeXray");
   context.subscriptions.push(out);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("codexray.panel", new CodeXrayViewProvider())
+  );
   log("CodeXray activated. extensionPath=" + context.extensionPath);
 
   context.subscriptions.push(

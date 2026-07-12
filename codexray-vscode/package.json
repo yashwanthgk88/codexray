@@ -2,7 +2,7 @@
   "name": "codexray",
   "displayName": "CodeXray",
   "description": "A source-code X-ray for manual security review of Python. Not a scanner — surfaces entry points, sinks, taint sources, blind spots, and a coverage ledger. The analyst decides.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "codexray",
   "license": "MIT",
   "repository": {
@@ -25,19 +25,45 @@
   ],
   "activationEvents": [
     "onCommand:codexray.analyzeWorkspace",
-    "onCommand:codexray.analyzeFolder"
+    "onCommand:codexray.analyzeFolder",
+    "onView:codexray.panel"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codexray",
+          "title": "CodeXray",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codexray": [
+        {
+          "id": "codexray.panel",
+          "name": "X-ray",
+          "type": "tree"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "codexray.panel",
+        "contents": "A source-code X-ray for manual security review of Python — not a scanner.\n\n[$(search) X-ray Workspace](command:codexray.analyzeWorkspace)\n\nOr right-click any folder in the Explorer → CodeXray: X-ray This Folder."
+      }
+    ],
     "commands": [
       {
         "command": "codexray.analyzeWorkspace",
-        "title": "CodeXray: X-ray Workspace",
-        "category": "CodeXray"
+        "title": "X-ray Workspace",
+        "category": "CodeXray",
+        "icon": "$(search)"
       },
       {
         "command": "codexray.analyzeFolder",
-        "title": "CodeXray: X-ray This Folder",
+        "title": "X-ray This Folder",
         "category": "CodeXray"
       }
     ],
@@ -47,6 +73,13 @@
           "command": "codexray.analyzeFolder",
           "when": "explorerResourceIsFolder",
           "group": "navigation@99"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "codexray.analyzeWorkspace",
+          "when": "view == codexray.panel",
+          "group": "navigation"
         }
       ]
     }
