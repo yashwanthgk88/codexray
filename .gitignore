@@ -1,0 +1,12 @@
+# Node / VS Code extension build artifacts
+codexray-vscode/node_modules/
+codexray-vscode/dist/
+codexray-vscode/scratch/*.js
+codexray-vscode/*.vsix
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
