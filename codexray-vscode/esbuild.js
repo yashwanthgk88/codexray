@@ -14,9 +14,14 @@ const DIST = path.join(__dirname, "dist");
  */
 function copyWasm() {
   fs.mkdirSync(DIST, { recursive: true });
+  // Runtime + one grammar per supported language adapter (see src/analyzer/adapters).
   const targets = [
     ["web-tree-sitter/tree-sitter.wasm", "tree-sitter.wasm"],
     ["tree-sitter-wasms/out/tree-sitter-python.wasm", "tree-sitter-python.wasm"],
+    ["tree-sitter-wasms/out/tree-sitter-php.wasm", "tree-sitter-php.wasm"],
+    ["tree-sitter-wasms/out/tree-sitter-java.wasm", "tree-sitter-java.wasm"],
+    ["tree-sitter-wasms/out/tree-sitter-c_sharp.wasm", "tree-sitter-c_sharp.wasm"],
+    ["tree-sitter-wasms/out/tree-sitter-typescript.wasm", "tree-sitter-typescript.wasm"],
   ];
   for (const [from, to] of targets) {
     const src = require.resolve(from);

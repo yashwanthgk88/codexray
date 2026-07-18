@@ -92,8 +92,112 @@ npm run vsce:package   # produce codexray-<version>.vsix
 # F5 in VS Code launches the Extension Development Host
 ```
 
+## v0.2.0 — multi-language architecture + PHP + taint visualization (2026-07-13)
+
+Goal: support more languages (starting PHP, for DVWA) and a taint-flow view a
+junior analyst can follow.
+
+**Language-adapter architecture.** Split the engine into a language-agnostic core
+and per-language adapters:
+- `analyzer/analyze.ts` — now core only: call graph, reachability, coverage ledger.
+  Dispatches each file to its adapter, unions the knowledge bases.
+- `analyzer/adapters/types.ts` — `LanguageAdapter` + `Knowledge` contract.
+- `analyzer/adapters/{python,php}.ts` — per-language tree walkers. Python is the
+  original xray.py logic moved behind the contract (with its `__main__` post-pass).
+- `analyzer/knowledge/{python,php}.ts` — per-language sinks/sources/blind spots.
+- `analyzer/adapters/index.ts` — registry (extension → adapter); one place to add
+  a language.
+- `analyzer/parser.ts` — multi-grammar registry, lazy-loads only the grammars the
+  scanned files need. All grammars already ship in `tree-sitter-wasms`.
+
+**PHP adapter.** Models each `.php` file's top-level as a synthetic `<main>`
+web-reachable entry, plus real functions/methods. Node types verified empirically
+via `scratch/probe-php.js`. Gotcha fixed: `variable_name`'s identifier is a child
+of type `name`, NOT a field (`variableIdent()` helper).
+
+**Intra-function taint** (PHP): tracks `$var = <source>` assignments and flags a
+sink when a tainted var / superglobal reaches its arguments → records
+`origin → via[] → sink` chains (`FunctionInfo.taint`).
+
+**Visualization overhaul** (`media/report.html`, rewritten): VS Code-theme-aware
+two-pane webview. Left = ranked flow list (tainted first, then by category),
+filter by category / search / tainted-only. Right = a source→sink "ladder" with
+code at each step + the sink function's code with source/sink lines highlighted.
+Click any location → opens the file at that line (new `onDidReceiveMessage`
+handler in `extension.ts`).
+
+**Verified on DVWA:** 170 files (169 PHP + 1 py), 352 sinks, **453 flows, 70
+proven taint chains**. Signature vulns land correctly, e.g. exec/high.php:
+`$_REQUEST['ip']` → `$target` → `shell_exec()`.
+
+Packaged + hand-installed **codexray-0.2.0.vsix**; registry points at
+`codexray.codexray-0.2.0`, 0.1.x removed. Requires a VS Code reload to activate.
+
+## v0.3.0 — AI-agnostic flow insights (2026-07-13)
+
+Added an **"Explain with AI"** button on every flow. It sends the source→sink
+chain + the sink function's code to a configured model and renders the model's
+security assessment (verdict / how it could be exploited / what to check / fix).
+
+**Provider-agnostic by design** — raw HTTP, no bundled SDK. Four first-class
+providers in `src/ai/provider.ts` (v0.3.2), each with the correct URL + auth
+(verified via scratch/test-providers.ts):
+- `anthropic` → `POST {base}/v1/messages`, `x-api-key` (Claude; default `claude-opus-4-8`)
+- `openai` → `POST {base}/chat/completions`, `Bearer` (OpenAI, OpenRouter, LM Studio, vLLM)
+- `azure` → `POST {base}/openai/deployments/{model}/chat/completions?api-version=..`, `api-key`
+- `ollama` → `POST {base}/chat/completions`, no key (local, default :11434)
+
+Config via VS Code settings (`codexray.ai.provider|model|baseUrl|maxTokens`); API
+key in SecretStorage via the **CodeXray: Set AI API Key** command (falls back to
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). Prompt lives in `src/ai/prompt.ts`
+(framed as advisory input to a human reviewer — the analyst still decides). The
+webview posts `explain`, the extension host makes the call (not the webview, so
+no CSP/network issue), and posts the insight back; rendered with a small safe
+Markdown converter. Packaged + installed **codexray-0.3.0.vsix**.
+
+## v0.4.0 — existing-controls / defense evaluation (2026-07-13)
+
+CodeXray now recognises **existing defenses** and evaluates residual risk, not
+just "there is a sink". A `sanitizers` map was added to the Knowledge contract
+(`adapters/types.ts`) and populated for PHP (`knowledge/php.ts`): escapers
+(`escapeshellarg`, `htmlspecialchars`, `mysqli_real_escape_string`, …), path
+guards (`basename`, `realpath`), and generic validators/casts (`intval`,
+`filter_var`, `is_numeric`, `(int)` cast, …), each tagged with the sink
+categories it actually defends (`["*"]` = generic).
+
+The PHP taint engine now carries controls: `$safe = escapeshellarg($t)`
+propagates the control onto `$safe`; at the sink, controls from the carrier
+variable + the sink expression are recorded on the `TaintFinding`, each marked
+**relevant** iff it defends that sink's category. Crucially this is *smart* —
+`htmlspecialchars()` on a shell-command sink is flagged **✗ not-relevant**, while
+`escapeshellarg()` is **✓ relevant** (verified in scratch/check-synth.ts).
+
+Payload derives a **defense level** per flow — `none` / `weak` (control present
+but wrong category) / `guarded` (relevant control) — and ranks **undefended
+flows first**. Report UI shows a defense badge, an "Existing controls" line with
+✓/✗ chips, defense-aware "What to do" guidance, an **Undefended only** filter,
+and an **undefended** stat. The AI prompt includes the controls so the model
+evaluates whether they truly cover the value. On DVWA: 70 tainted → 46
+undefended, 4 weak, 20 guarded. Packaged + installed **codexray-0.4.0.vsix**.
+
+## v0.5.0 — complete Inventory view (2026-07-17)
+
+Added an **Inventory** tab: the full attack surface, listing EVERY entry point,
+sink, and source found — reachable or not, tainted or not — as browsable,
+filterable tables (clickable to source). Complements the risk-ranked Taint Flows
+tab. `buildInventory()` in payload.ts derives per-sink `reachable` (from the
+coverage buckets) and `tainted`/`controls` (from taint findings); a live text
+filter narrows all three tables. Key win: sinks NOT reachable from a recognized
+entry point (8 on DVWA) never appear as flows but DO appear here — nothing hidden.
+On DVWA: 169 entries, 352 sinks (344 reachable / 8 unreached / 67 tainted), 333
+sources. Packaged + installed **codexray-0.5.0.vsix**.
+
 ## Possible next steps
-- CI (GitHub Actions) to build the `.vsix` and attach to releases.
-- Publish to the VS Code Marketplace (`vsce publish`).
-- Editor integration: click a function in the report to jump to source.
-- Extend the engine: more frameworks / sinks, or real dataflow.
+- Java, C# (ASP.NET), Kotlin/Swift (mobile) adapters — grammars already bundled;
+  each is one adapter + one knowledge file (incl. its own sanitizers), no core changes.
+- Precise control scoping (does the sanitizer wrap THIS value vs a sibling);
+  detect prepared statements (bind_param) as a strong SQL control.
+- Stream AI insights token-by-token; "explain all undefended flows" batch.
+- Cross-function taint (propagate through call args/returns, not just intra-function).
+- Python taint (the taint pass is currently PHP-only).
+- CI (GitHub Actions) to build the `.vsix`; publish to Marketplace.

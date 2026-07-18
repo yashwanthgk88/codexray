@@ -1,356 +1,892 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CodeXray - interactive source anatomy</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CodeXray</title>
 <style>
-  :root{
-    --bg:#f6f6f3;--card:#fff;--ink:#2e2e38;--muted:#77776f;--line:#e5e4dd;
-    --accent:#0c447c;--accentbg:#e6f1fb;--dark:#2e2e38;--darker:#26262e;
-    --amber:#854f0b;--amberbg:#faeeda;--ok:#0f6e56;--okbg:#e1f5ee;
-    --red:#a32d2d;--redbg:#fcebeb;--code:#1e1e26;--codeink:#e8e8ee;
+  :root {
+    --bg: var(--vscode-editor-background, #1e1e1e);
+    --fg: var(--vscode-editor-foreground, #d4d4d4);
+    --panel: var(--vscode-sideBar-background, #252526);
+    --border: var(--vscode-panel-border, #3c3c3c);
+    --muted: var(--vscode-descriptionForeground, #9d9d9d);
+    --accent: var(--vscode-textLink-foreground, #4daafc);
+    --hover: var(--vscode-list-hoverBackground, #2a2d2e);
+    --active: var(--vscode-list-activeSelectionBackground, #094771);
+    --activeFg: var(--vscode-list-activeSelectionForeground, #fff);
+    --code: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+    --danger: #f14c4c;
+    --warn: #cca700;
+    --ok: #89d185;
+    --source: #4daafc;
+    --sink: #f14c4c;
   }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-       background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5}
-  header{background:var(--dark);color:#fff;padding:16px 24px;position:sticky;top:0;z-index:20}
-  header h1{margin:0;font-size:18px;font-weight:600}
-  header .sub{color:#c7c7d0;font-size:12px;margin-top:3px}
-  .layout{display:grid;grid-template-columns:280px 1fr;min-height:calc(100vh - 58px)}
-  .side{background:var(--card);border-right:1px solid var(--line);padding:14px;overflow-y:auto}
-  .side h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:16px 0 8px}
-  .side h3:first-child{margin-top:0}
-  .epitem{padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer;background:#fff}
-  .epitem:hover{border-color:var(--accent)}
-  .epitem.active{background:var(--accentbg);border-color:var(--accent)}
-  .epitem .m{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:#eef;color:#334;margin-right:5px}
-  .epitem .m.CLI{background:#e6f5ee;color:#0f6e56}
-  .epitem .p{font-family:"SF Mono",Menlo,monospace;font-size:12px}
-  .epitem .meta{font-size:11px;color:var(--muted);margin-top:3px}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:4px}
-  .main{padding:18px 22px;overflow-y:auto}
-  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-  .st{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 14px;min-width:96px}
-  .st .n{font-size:20px;font-weight:600}.st .l{font-size:10.5px;text-transform:uppercase;color:var(--muted);letter-spacing:.3px}
-  .st.w .n{color:var(--amber)}
-  .breadcrumb{font-size:12px;color:var(--muted);margin-bottom:10px}
-  .breadcrumb b{color:var(--ink)}
-  .empty{color:var(--muted);padding:40px;text-align:center;border:1px dashed var(--line);border-radius:10px}
-  /* call-tree nodes */
-  .tnode{margin:0 0 8px 0}
-  .tnode .head{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
-       border-radius:8px 8px 0 0;padding:8px 12px;cursor:pointer;position:relative}
-  .tnode .head.collapsed{border-radius:8px}
-  .tnode .head:hover{background:#fafaf7}
-  .tnode.entry > .head{border-left:3px solid var(--accent)}
-  .tnode.hassink > .head{border-left:3px solid var(--red)}
-  .tnode.hasblind > .head{border-left:3px solid var(--dark)}
-  .caret{width:14px;color:var(--muted);transition:transform .15s;flex-shrink:0}
-  .caret.open{transform:rotate(90deg)}
-  .fname{font-family:"SF Mono",Menlo,monospace;font-size:13px;font-weight:600}
-  .floc{font-size:11px;color:var(--muted)}
-  .badges{margin-left:auto;display:flex;gap:4px;align-items:center}
-  .badge{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
-  .badge.sink{background:var(--redbg);color:var(--red)}
-  .badge.blind{background:var(--dark);color:#ffe600}
-  .badge.src{background:var(--amberbg);color:var(--amber)}
-  .badge.leaf{background:#eee;color:#777}
-  /* code panel */
-  .code{background:var(--code);border-radius:0 0 8px 8px;padding:8px 0;overflow-x:auto;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.65}
-  .cl{display:flex;white-space:pre}
-  .cl .ln{color:#5a5a6a;width:46px;text-align:right;padding-right:12px;flex-shrink:0;user-select:none}
-  .cl .tx{color:var(--codeink);padding-right:16px}
-  .cl.hl-sink{background:rgba(163,45,45,.22)}
-  .cl.hl-source{background:rgba(133,79,11,.28)}
-  .cl.hl-blind{background:rgba(255,230,0,.12)}
-  .cl.hl-call{background:rgba(12,68,124,.20)}
-  .inlineev{margin-left:8px;font-size:11px;padding:0 6px;border-radius:4px;font-family:inherit}
-  .inlineev.sink{background:var(--red);color:#fff}
-  .inlineev.source{background:var(--amber);color:#fff}
-  .inlineev.blind{background:#ffe600;color:#2e2e38}
-  .digbtn{margin-left:8px;font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:4px;padding:1px 8px;cursor:pointer;font-family:-apple-system,sans-serif}
-  .digbtn.done{background:#3a6d55}
-  .kids{margin:8px 0 0 26px;border-left:2px dashed var(--line);padding-left:14px}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:4px 0 14px}
-  .legend span{display:flex;align-items:center;gap:5px}
-  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
-  .toolbar{display:flex;gap:8px;margin-bottom:12px}
-  .tbtn{font-size:12px;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 11px;cursor:pointer;color:var(--muted)}
-  .tbtn:hover{border-color:var(--accent);color:var(--accent)}
-  .disclaim{background:#3c3c48;border-left:3px solid #ffe600;padding:7px 11px;font-size:11.5px;color:#e8e8ee;border-radius:0 4px 4px 0;margin-top:9px}
-  .cycle{font-size:11px;color:var(--muted);font-style:italic;padding:4px 0 0 26px}
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--vscode-font-family, "Segoe UI", system-ui, sans-serif);
+    font-size: 13px; display: flex; flex-direction: column;
+  }
+  a { color: var(--accent); text-decoration: none; cursor: pointer; }
+
+  header {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header h1 .mono { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  .stat b { font-size: 16px; }
+  .stat span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat.hot b { color: var(--danger); }
+  .langs { display: flex; gap: 6px; margin-left: auto; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 2px 9px; font-size: 11px; color: var(--muted);
+  }
+  .chip b { color: var(--fg); }
+
+  .toolbar {
+    padding: 7px 16px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .toolbar input[type=search] {
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ccc);
+    border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; min-width: 200px;
+  }
+  .filters { display: flex; gap: 5px; flex-wrap: wrap; }
+  .fbtn {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 12px; padding: 2px 10px; font-size: 11px; cursor: pointer; user-select: none;
+  }
+  .fbtn.on { background: var(--active); color: var(--activeFg); border-color: var(--active); }
+  .toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .list { width: 42%; max-width: 560px; min-width: 300px; overflow-y: auto; border-right: 1px solid var(--border); }
+  .detail { flex: 1; overflow-y: auto; }
+
+  .group-label {
+    position: sticky; top: 0; background: var(--bg); z-index: 1;
+    padding: 6px 14px; font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .flow-row { padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 9px; align-items: flex-start; }
+  .flow-row:hover { background: var(--hover); }
+  .flow-row.sel { background: var(--active); color: var(--activeFg); }
+  .flow-row.sel .fr-sub, .flow-row.sel .fr-file { color: var(--activeFg); opacity: .85; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; }
+  .fr-main { flex: 1; min-width: 0; }
+  .fr-title { display: flex; align-items: center; gap: 7px; }
+  .fr-sink { font-family: var(--code); font-size: 12px; }
+  .fr-file { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .badge { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+  .badge.taint { background: rgba(241,76,76,.18); color: var(--danger); border: 1px solid rgba(241,76,76,.4); }
+  .badge.reach { background: rgba(204,167,0,.15); color: var(--warn); border: 1px solid rgba(204,167,0,.35); }
+
+  .empty { padding: 40px; color: var(--muted); text-align: center; }
+  .d-head { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .d-cat { font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+  .d-summary { font-size: 16px; margin: 6px 0 4px; line-height: 1.35; }
+  .d-summary .src { color: var(--source); font-family: var(--code); }
+  .d-summary .snk { color: var(--sink); font-family: var(--code); }
+  .d-note { font-size: 12px; color: var(--muted); }
+  .d-note code { color: var(--fg); }
+
+  .ladder { padding: 18px 20px; }
+  .step { display: flex; gap: 12px; }
+  .rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: 0 0 auto; }
+  .node { width: 13px; height: 13px; border-radius: 50%; border: 2px solid; background: var(--bg); flex: 0 0 auto; margin-top: 3px; }
+  .node.source { border-color: var(--source); }
+  .node.hop { border-color: var(--muted); width: 9px; height: 9px; }
+  .node.sink { border-color: var(--sink); background: var(--sink); }
+  .line { width: 2px; flex: 1; background: var(--border); min-height: 14px; }
+  .line.hot { background: linear-gradient(var(--source), var(--sink)); }
+  .step-body { padding-bottom: 14px; flex: 1; min-width: 0; }
+  .step-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+  .step-kind.source { color: var(--source); }
+  .step-kind.hop { color: var(--muted); }
+  .step-kind.sink { color: var(--sink); }
+  .step-loc { font-size: 11px; color: var(--muted); font-family: var(--code); }
+  .step-loc a:hover { text-decoration: underline; }
+  .codeline { font-family: var(--code); font-size: 12px; margin-top: 5px; padding: 5px 9px; border-radius: 4px; background: var(--panel); border-left: 3px solid var(--border); white-space: pre-wrap; word-break: break-word; }
+  .codeline.source { border-left-color: var(--source); }
+  .codeline.sink { border-left-color: var(--sink); }
+  .via { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .via code { color: var(--source); }
+
+  .code-panel { border-top: 1px solid var(--border); padding: 12px 20px 30px; }
+  .code-panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 0 0 8px; }
+  .code { font-family: var(--code); font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
+  .cl { display: flex; white-space: pre; cursor: pointer; }
+  .cl:hover { background: var(--hover); }
+  .cl .ln { width: 46px; text-align: right; padding: 0 10px 0 0; color: var(--muted); user-select: none; flex: 0 0 auto; border-right: 1px solid var(--border); margin-right: 10px; }
+  .cl .tx { flex: 1; padding-right: 12px; }
+  .cl.hl-source { background: rgba(77,170,252,.10); }
+  .cl.hl-source .ln { color: var(--source); font-weight: 700; }
+  .cl.hl-sink { background: rgba(241,76,76,.12); }
+  .cl.hl-sink .ln { color: var(--sink); font-weight: 700; }
+  .tag { font-size: 9px; padding: 0 5px; border-radius: 6px; margin-left: 8px; vertical-align: middle; }
+  .tag.source { background: var(--source); color: #000; }
+  .tag.sink { background: var(--sink); color: #fff; }
+  .jump { float: right; font-size: 10px; color: var(--muted); }
+  .cl:hover .jump { color: var(--accent); }
+
+  #view-flows { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #view-blind, #view-ledger, #view-inventory { flex: 1; min-height: 0; }
+  .inv-filter { width: 100%; max-width: 420px; margin-bottom: 14px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; }
+  .tag-reach { font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+  .tag-reach.yes { background: rgba(137,209,133,.15); color: var(--ok); border: 1px solid rgba(137,209,133,.35); }
+  .tag-reach.no { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
+
+  /* View tabs */
+  .tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 8px 14px; font-size: 12px; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; user-select: none;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.on { color: var(--fg); border-bottom-color: var(--accent); }
+  .tab .n { font-size: 10px; color: var(--muted); margin-left: 5px; }
+  .tab.on .n { color: var(--accent); }
+
+  /* Blind spots + ledger tables */
+  .tableview { padding: 14px 20px 40px; overflow-y: auto; }
+  .tableview .intro { color: var(--muted); font-size: 12px; margin-bottom: 14px; max-width: 720px; line-height: 1.5; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.grid th {
+    text-align: left; padding: 6px 10px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; font-size: 10px; letter-spacing: .5px;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg);
+  }
+  table.grid td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.grid tr:hover td { background: var(--hover); }
+  table.grid td.mono, table.grid td .mono { font-family: var(--code); }
+  table.grid a.loc { font-family: var(--code); white-space: nowrap; }
+  .pill { font-size: 10px; padding: 1px 7px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pill.blind { background: rgba(181,128,215,.15); color: #b180d7; border-color: rgba(181,128,215,.4); }
+  .ledger-grp { margin-bottom: 22px; }
+  .ledger-grp h3 { font-size: 12px; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+  .ledger-grp h3 .n { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+  /* AI insight panel */
+  .ai-panel { border-top: 1px solid var(--border); padding: 14px 20px 34px; }
+  .ai-head { display: flex; align-items: center; gap: 10px; }
+  .ai-btn { background: var(--active); color: var(--activeFg); border: none; border-radius: 5px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .ai-btn:hover { filter: brightness(1.1); }
+  .ai-btn:disabled { opacity: .6; cursor: default; }
+  .ai-model { font-size: 11px; color: var(--muted); font-family: var(--code); }
+  .ai-body { margin-top: 12px; font-size: 13px; line-height: 1.5; }
+  .ai-body:empty { display: none; }
+  .ai-body h1, .ai-body h2, .ai-body h3 { font-size: 13px; margin: 12px 0 4px; }
+  .ai-body ul { margin: 4px 0; padding-left: 18px; }
+  .ai-body li { margin: 3px 0; }
+  .ai-body p { margin: 6px 0; }
+  .ai-body code { font-family: var(--code); background: var(--panel); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  .ai-body pre { background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 9px 11px; overflow-x: auto; }
+  .ai-body pre code { background: none; padding: 0; }
+  .ai-body strong { color: var(--fg); }
+  .ai-loading { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ai-err { color: var(--danger); font-size: 12px; }
+  .ai-err .ai-setkey { margin-left: 8px; color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .ai-disclaimer { margin-top: 10px; font-size: 10px; color: var(--muted); font-style: italic; }
+
+  /* "How to read this" explainer */
+  .explainer { padding: 14px 18px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12.5px; line-height: 1.55; }
+  .explainer h2 { font-size: 13px; margin: 0 0 8px; }
+  .explainer .row { display: flex; gap: 18px; flex-wrap: wrap; }
+  .explainer .col { flex: 1; min-width: 220px; }
+  .explainer b.src { color: var(--source); }
+  .explainer b.snk { color: var(--sink); }
+  .explainer code { font-family: var(--code); background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+  .explainer .legend { margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); align-items: center; }
+  .explainer .legend .b { display: inline-flex; align-items: center; gap: 5px; }
+  .explainer .badge { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+  .explainer .close { float: right; cursor: pointer; color: var(--muted); font-size: 11px; }
+  .explainer .close:hover { color: var(--fg); }
+  .info-toggle { background: transparent; border: 1px solid var(--border); border-radius: 12px; color: var(--muted); font-size: 11px; padding: 2px 10px; cursor: pointer; }
+  .info-toggle:hover { color: var(--fg); }
+
+  .step-note { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+  .step-note b { color: var(--fg); }
+  .reading { margin: 8px 0 2px; font-size: 12.5px; line-height: 1.55; color: var(--fg); background: var(--panel); border-left: 3px solid var(--accent); padding: 8px 11px; border-radius: 0 4px 4px 0; }
+  .reading .src { color: var(--source); font-family: var(--code); }
+  .reading .snk { color: var(--sink); font-family: var(--code); }
+
+  /* Defense / controls */
+  .def { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+  .def-none { background: rgba(241,76,76,.18); color: var(--danger); border: 1px solid rgba(241,76,76,.4); }
+  .def-weak { background: rgba(204,167,0,.15); color: var(--warn); border: 1px solid rgba(204,167,0,.35); }
+  .def-guarded { background: rgba(137,209,133,.15); color: var(--ok); border: 1px solid rgba(137,209,133,.4); }
+  .controls-line { margin: 8px 0 2px; font-size: 12px; line-height: 1.5; }
+  .controls-line .lbl { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: .5px; margin-right: 6px; }
+  .ctrl { font-family: var(--code); font-size: 11.5px; padding: 1px 7px; border-radius: 8px; margin-right: 6px; white-space: nowrap; }
+  .ctrl.ok { background: rgba(137,209,133,.15); color: var(--ok); border: 1px solid rgba(137,209,133,.35); }
+  .ctrl.no { background: rgba(204,167,0,.12); color: var(--warn); border: 1px solid rgba(204,167,0,.3); }
+  .controls-line.none { color: var(--danger); }
+
+  /* ── Immersive flow pipeline ───────────────────────────── */
+  .pipeline-wrap { padding: 22px 20px 8px; overflow-x: auto; }
+  .pipeline { display: flex; align-items: stretch; min-width: min-content; }
+  .pnode {
+    flex: 0 0 auto; width: 168px; background: var(--panel); border: 1px solid var(--border);
+    border-top: 3px solid var(--border); border-radius: 8px; padding: 11px 12px 10px;
+    cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; position: relative;
+  }
+  .pnode:hover { transform: translateY(-3px); box-shadow: 0 4px 14px rgba(0,0,0,.28); }
+  .pnode .icon { font-size: 19px; line-height: 1; }
+  .pnode .kind { font-size: 9px; text-transform: uppercase; letter-spacing: .7px; font-weight: 700; margin: 6px 0 3px; }
+  .pnode .title { font-family: var(--code); font-size: 12.5px; word-break: break-all; line-height: 1.35; }
+  .pnode .sub { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+  .pnode .loc { font-size: 10px; color: var(--muted); font-family: var(--code); margin-top: 6px; opacity: .85; }
+  .pnode:hover .loc { color: var(--accent); }
+  .pnode.src   { border-top-color: var(--source); }
+  .pnode.src .kind { color: var(--source); }
+  .pnode.carrier { border-top-color: #8a8a8a; }
+  .pnode.carrier .kind { color: var(--muted); }
+  .pnode.gate-ok  { border-top-color: var(--ok); }
+  .pnode.gate-ok .kind { color: var(--ok); }
+  .pnode.gate-bad { border-top-color: var(--danger); border-style: dashed; }
+  .pnode.gate-bad .kind { color: var(--danger); }
+  .pnode.gate-weak { border-top-color: var(--warn); }
+  .pnode.gate-weak .kind { color: var(--warn); }
+  .pnode.sink  { border-top-color: var(--sink); }
+  .pnode.sink .kind { color: var(--sink); }
+  .pnode.entry { border-top-color: var(--warn); }
+  .pnode.entry .kind { color: var(--warn); }
+
+  /* connector with a travelling packet */
+  .pconn { flex: 1 1 46px; min-width: 46px; position: relative; display: flex; align-items: center; }
+  .pconn .rail { height: 3px; width: 100%; border-radius: 2px; background: var(--border); position: relative; overflow: visible; }
+  .pconn.hot .rail { background: linear-gradient(90deg, var(--source), var(--sink)); }
+  .pconn.safe .rail { background: var(--ok); opacity: .55; }
+  .pconn .arrow { position: absolute; right: -1px; top: 50%; transform: translateY(-50%);
+    border-left: 7px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .pconn.hot { color: var(--sink); }
+  .pconn.safe { color: var(--ok); }
+  .pconn:not(.hot):not(.safe) { color: var(--border); }
+  .packet { position: absolute; top: 50%; width: 9px; height: 9px; border-radius: 50%;
+    margin-top: -4.5px; margin-left: -4.5px; animation: travel 1.9s cubic-bezier(.5,0,.5,1) infinite; }
+  .pconn.hot .packet { background: var(--sink); box-shadow: 0 0 8px var(--sink); }
+  .pconn.safe .packet { background: var(--ok); box-shadow: 0 0 6px var(--ok); opacity: .8; }
+  .pconn:not(.hot):not(.safe) .packet { display: none; }
+  @keyframes travel { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .packet { animation: none; opacity: .9; left: 50%; } }
+
+  .verdict { margin: 14px 20px 0; padding: 10px 13px; border-radius: 6px; font-size: 13px; line-height: 1.5; display: flex; gap: 9px; align-items: flex-start; }
+  .verdict .vicon { font-size: 15px; line-height: 1.2; }
+  .verdict.bad { background: rgba(241,76,76,.10); border: 1px solid rgba(241,76,76,.35); }
+  .verdict.warn { background: rgba(204,167,0,.10); border: 1px solid rgba(204,167,0,.32); }
+  .verdict.ok { background: rgba(137,209,133,.10); border: 1px solid rgba(137,209,133,.35); }
 </style>
 </head>
 <body>
 <header>
-  <h1>CodeXray &middot; interactive source anatomy</h1>
-  <div class="sub" id="rootline"></div>
-  <div class="disclaim"><b>X-ray, not scanner.</b> Click any entry point, then expand each call to follow
-  execution into the real source. Sinks, tainted inputs and blind spots are highlighted as <i>facts</i> &mdash;
-  you decide what's a vulnerability.</div>
+  <h1>CodeXray <span class="mono" id="root"></span></h1>
+  <div class="stats" id="stats"></div>
+  <div class="langs" id="langs"></div>
 </header>
-<div class="layout">
-  <aside class="side">
-    <h3>Entry points</h3>
-    <div id="eplist"></div>
-    <h3>Jump to</h3>
-    <div class="epitem" onclick="showLedger()"><span class="p">Coverage ledger</span><div class="meta">disposition every function</div></div>
-    <div class="epitem" onclick="showBlind()"><span class="p">Blind spots</span><div class="meta" id="blindcount"></div></div>
-  </aside>
-  <main class="main" id="main"></main>
+<div class="tabs" id="tabs">
+  <div class="tab on" data-view="flows">Taint Flows <span class="n" id="tab-flows-n"></span></div>
+  <div class="tab" data-view="inventory">Inventory <span class="n" id="tab-inv-n"></span></div>
+  <div class="tab" data-view="blind">Blind Spots <span class="n" id="tab-blind-n"></span></div>
+  <div class="tab" data-view="ledger">Coverage Ledger <span class="n" id="tab-ledger-n"></span></div>
 </div>
 
-<script>
-const D = __PAYLOAD__;
-const F = D.funcs;
-const CATC={command_exec:"#A32D2D",code_exec:"#A32D2D",sql:"#993C1D",deserialization:"#993556",
-  file_io:"#854F0B",ssrf:"#185FA5",template_injection:"#534AB7",xss:"#993556",response_write:"#5F5E5A"};
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
-function leaf(k){return k.includes("::")?k.split("::").pop():k;}
-function skey(k){return k.includes("::")?k.replace("::"," :: "):k;}
-
-document.getElementById("rootline").textContent = D.root+"  ·  "+D.stats.functions+" functions  ·  "+D.stats.entry_points+" entry points";
-document.getElementById("blindcount").textContent = D.stats.blindspots+" unseeable region(s)";
-
-// ---- sidebar entry list ----
-document.getElementById("eplist").innerHTML = D.entries.map((e,i)=>{
-  const m=e.meta||{}; const cli=e.kind==='cli';
-  const dotcolor = e.sink_cats.length? (CATC[e.sink_cats[0]]||"#a32d2d"):"#c9c9c2";
-  return `<div class="epitem" id="ep${i}" onclick="openEntry('${esc(e.key)}',${i})">
-    <span class="m ${cli?'CLI':''}">${esc(m.method||'?')}</span>
-    <span class="p">${esc(m.path||e.name)}</span>
-    <span class="dot" style="background:${dotcolor}"></span>
-    <div class="meta">${e.reach} func(s) reachable &middot; ${e.sink_cats.length?e.sink_cats.join(", "):'no sinks'}</div>
-  </div>`;
-}).join("");
-
-// ---- disposition state (shared with ledger) ----
-const dispo={};
-
-// ---- expansion state per rendered tree (track open nodes + visited for cycles) ----
-function openEntry(key,i){
-  document.querySelectorAll(".epitem").forEach(x=>x.classList.remove("active"));
-  const el=document.getElementById("ep"+i); if(el) el.classList.add("active");
-  const e=D.entries.find(x=>x.key===key);
-  const m=e.meta||{};
-  const main=document.getElementById("main");
-  main.innerHTML=`
-    <div class="breadcrumb">entry point &rsaquo; <b>${esc(m.path||e.name)}</b></div>
-    <div class="stats">
-      <div class="st"><div class="n">${e.reach}</div><div class="l">funcs reachable</div></div>
-      <div class="st ${e.sink_cats.length?'w':''}"><div class="n">${e.sink_cats.length}</div><div class="l">sink categories</div></div>
-      <div class="st"><div class="n">${(e.sources||[]).length}</div><div class="l">input sources</div></div>
+<div id="view-flows">
+  <div class="explainer" id="explainer">
+    <span class="close" id="explainerClose">Hide ✕</span>
+    <h2>How to read this — 30 seconds</h2>
+    <div class="row">
+      <div class="col">
+        <b class="src">SOURCE</b> = where untrusted input enters the app — a URL/query value, form field, cookie, or header. Example: <code>$_REQUEST['ip']</code>. Anything from a source is attacker-controlled.
+      </div>
+      <div class="col">
+        <b class="snk">SINK</b> = a dangerous operation that can be abused if it receives attacker input — running a shell command, a SQL query, including a file, writing to the page. Example: <code>shell_exec()</code>.
+      </div>
+      <div class="col">
+        <b>The flow</b> = CodeXray found a path where input from a source can reach a sink. Each card on the left is one such path. <b>Your job:</b> follow it and decide — is the input cleaned or validated before it hits the sink? If not, it's likely exploitable.
+      </div>
     </div>
     <div class="legend">
-      <span><span class="sw" style="background:#A32D2D"></span>sink (dangerous op)</span>
-      <span><span class="sw" style="background:#854F0B"></span>tainted input</span>
-      <span><span class="sw" style="background:#ffe600"></span>blind spot</span>
-      <span><span class="sw" style="background:#0c447c"></span>call &mdash; click <b>dig</b> to expand</span>
+      <span class="b"><span class="badge taint">tainted</span> input was traced into the sink — start here</span>
+      <span class="b"><span class="badge reach">reachable</span> sink is reachable, but input reaching it isn't proven</span>
     </div>
-    <div class="toolbar">
-      <button class="tbtn" onclick="expandAll('${esc(key)}')">Expand every reachable path</button>
-      <button class="tbtn" onclick="openEntry('${esc(key)}',${i})">Collapse</button>
+    <div class="legend" style="margin-top:6px">
+      <span class="b"><b>Existing controls</b> = sanitizers / escapers / validators the value passed through:</span>
+      <span class="b"><span class="def def-none">undefended</span> nothing between source &amp; sink</span>
+      <span class="b"><span class="def def-weak">control ✗</span> a control is present but doesn't defend this sink type</span>
+      <span class="b"><span class="def def-guarded">guarded</span> a relevant control is applied — verify it</span>
     </div>
-    <div id="tree"></div>`;
-  document.getElementById("tree").innerHTML = renderNode(key, [], true);
+  </div>
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Filter by sink, file, or entry…" />
+    <div class="filters" id="filters"></div>
+    <button class="info-toggle" id="infoToggle" title="Show/hide the explainer">ⓘ How to read</button>
+    <label class="toggle"><input type="checkbox" id="taintOnly" /> Tainted only</label>
+    <label class="toggle"><input type="checkbox" id="undefendedOnly" /> Undefended only</label>
+  </div>
+  <main>
+    <div class="list" id="list"></div>
+    <div class="detail" id="detail"><div class="empty">Select a flow on the left to see its source → sink path.</div></div>
+  </main>
+</div>
+
+<div id="view-inventory" class="tableview" style="display:none"></div>
+<div id="view-blind" class="tableview" style="display:none"></div>
+<div id="view-ledger" class="tableview" style="display:none"></div>
+
+<script>
+const DATA = __PAYLOAD__;
+const vscode = acquireVsCodeApi();
+
+const CAT_COLOR = {
+  command_exec: "#f14c4c", code_exec: "#f14c4c", deserialization: "#e5679e",
+  template_injection: "#e5679e", sql: "#cca700", file_inclusion: "#d1893a",
+  ssrf: "#3fb0ac", variable_injection: "#b180d7", ldap: "#3fb0ac",
+  file_io: "#4daafc", xss: "#89b4fa", header_injection: "#7a7a7a", response_write: "#7a7a7a",
+};
+const catColor = (c) => CAT_COLOR[c] || "#7a7a7a";
+
+// Defense (residual-risk) levels — see payload defenseLevel().
+const DEF = {
+  none:    { badge: "undefended", cls: "def-none",    line: "No sanitization detected between the source and this sink.",
+             todo: "No control was found on this path. Confirm the input really is unescaped all the way to the sink — if so, this is exploitable." },
+  weak:    { badge: "control ✗",  cls: "def-weak",     line: "A control is present, but none of the controls found actually defend this sink's category.",
+             todo: "The control(s) here don't match this sink type (e.g. an HTML escaper on a shell command). Treat this as likely still exploitable and verify." },
+  guarded: { badge: "guarded",    cls: "def-guarded",  line: "A control that defends this sink category was applied on the path.",
+             todo: "A relevant control is applied — verify it wraps the WHOLE value, is applied on every path, and can't be bypassed. If so, this is likely safe." },
+  na:      { badge: "",           cls: "",             line: "", todo: "" },
+};
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const open = (file, line) => vscode.postMessage({ type: "open", file, line });
+
+let state = { cat: null, taintOnly: false, undefendedOnly: false, q: "", selected: null };
+
+document.getElementById("root").textContent = DATA.root || "";
+const s = DATA.stats;
+const statDefs = [
+  ["files", "files"], ["entry_points", "entries"], ["sinks", "sinks"],
+  ["tainted_flows", "tainted"], ["undefended", "undefended", true], ["blindspots", "blind spots"],
+];
+document.getElementById("stats").innerHTML = statDefs.map(([k, label, hot]) =>
+  `<div class="stat ${hot ? "hot" : ""}"><b>${s[k] ?? 0}</b><span>${label}</span></div>`).join("");
+document.getElementById("langs").innerHTML = Object.entries(DATA.languages || {})
+  .sort((a, b) => b[1] - a[1])
+  .map(([l, n]) => `<span class="chip"><b>${n}</b> ${esc(l)}</span>`).join("");
+
+const catCounts = {};
+for (const f of DATA.flows) catCounts[f.category] = (catCounts[f.category] || 0) + 1;
+const cats = Object.keys(catCounts).sort((a, b) => catCounts[b] - catCounts[a]);
+const filtersEl = document.getElementById("filters");
+function labelFor(c) { const f = DATA.flows.find((x) => x.category === c); return f ? f.categoryLabel : c; }
+function renderFilters() {
+  filtersEl.innerHTML =
+    `<span class="fbtn ${state.cat === null ? "on" : ""}" data-cat="">All ${DATA.flows.length}</span>` +
+    cats.map((c) => `<span class="fbtn ${state.cat === c ? "on" : ""}" data-cat="${c}">${esc(labelFor(c))} ${catCounts[c]}</span>`).join("");
 }
+filtersEl.addEventListener("click", (e) => {
+  const b = e.target.closest(".fbtn"); if (!b) return;
+  state.cat = b.dataset.cat === "" ? null : b.dataset.cat;
+  renderFilters(); renderList();
+});
+document.getElementById("search").addEventListener("input", (e) => { state.q = e.target.value.toLowerCase(); renderList(); });
+document.getElementById("taintOnly").addEventListener("change", (e) => { state.taintOnly = e.target.checked; renderList(); });
+document.getElementById("undefendedOnly").addEventListener("change", (e) => { state.undefendedOnly = e.target.checked; renderList(); });
 
-// Render one call-tree node. path = ancestor keys (for cycle detection).
-function renderNode(key, ancestors, isEntry){
-  const fn=F[key]; if(!fn) return "";
-  const nid = "n_"+Math.random().toString(36).slice(2,9);
-  const isCycle = ancestors.includes(key);
-  const cls = ["tnode"];
-  if(isEntry) cls.push("entry");
-  if(fn.nsinks) cls.push("hassink");
-  if(fn.nblind) cls.push("hasblind");
-  const badges=[];
-  if(fn.nsinks) badges.push(`<span class="badge sink">${fn.nsinks} sink</span>`);
-  if(fn.nblind) badges.push(`<span class="badge blind">${fn.nblind} blind</span>`);
-  const hasSrc = Object.values(fn.events).some(ev=>ev.some(x=>x.kind==='source'));
-  if(hasSrc) badges.push(`<span class="badge src">input</span>`);
-  if(!fn.children.length) badges.push(`<span class="badge leaf">leaf</span>`);
-
-  // default: entry nodes start expanded, others collapsed
-  const startOpen = isEntry;
-  const codeHtml = renderCode(fn, ancestors);
-  const head = `<div class="head ${startOpen?'':'collapsed'}" onclick="toggleNode('${nid}')">
-      <span class="caret ${startOpen?'open':''}" id="${nid}_c">&#9656;</span>
-      <span class="fname">${esc(fn.name)}</span>
-      <span class="floc">${esc(fn.file)}:${fn.line}&ndash;${fn.endline}</span>
-      <span class="badges">${badges.join("")}</span>
-    </div>`;
-  const bodyDiv = `<div id="${nid}_b" style="display:${startOpen?'block':'none'}">
-      ${isCycle? `<div class="cycle">&#8635; recursion / cycle back to ${esc(fn.name)} &mdash; not re-expanded</div>`: codeHtml}
-    </div>`;
-  return `<div class="${cls.join(' ')}">${head}${bodyDiv}</div>`;
-}
-
-// Render the source code of a function with inline event highlights and dig buttons.
-function renderCode(fn, ancestors){
-  const childByLine={};
-  fn.children.forEach(c=>{ (childByLine[c.line]=childByLine[c.line]||[]).push(c); });
-  let out = '<div class="code">';
-  fn.body.forEach(row=>{
-    const evs = fn.events[row.n]||[];
-    const kinds = evs.map(e=>e.kind);
-    let hl="";
-    if(kinds.includes("sink")) hl="hl-sink";
-    else if(kinds.includes("source")) hl="hl-source";
-    else if(kinds.includes("blind")) hl="hl-blind";
-    else if(childByLine[row.n]) hl="hl-call";
-    let inline="";
-    evs.forEach(e=>{
-      if(e.kind==="sink") inline+=`<span class="inlineev sink" title="${esc(e.why)}">&#9632; ${esc(e.cat)}</span>`;
-      if(e.kind==="source") inline+=`<span class="inlineev source">&#9632; input: ${esc(e.label)}</span>`;
-      if(e.kind==="blind") inline+=`<span class="inlineev blind" title="${esc(e.why)}">&#9888; blind: ${esc(e.label)}</span>`;
-    });
-    // dig buttons for resolved calls on this line
-    (childByLine[row.n]||[]).forEach(c=>{
-      const target=F[c.target];
-      const label = target? `dig &rarr; ${esc(leaf(c.target))}()` : `${esc(c.name)}()`;
-      const did="dig_"+Math.random().toString(36).slice(2,9);
-      inline+=` <button class="digbtn" id="${did}" onclick="event.stopPropagation();digInto('${esc(c.target)}','${did}','${ancestors.join('|')}')">${label}</button>`;
-    });
-    out+=`<div class="cl ${hl}"><span class="ln">${row.n}</span><span class="tx">${esc(row.t)||' '}</span>${inline}</div>`;
+function visibleFlows() {
+  return DATA.flows.filter((f) => {
+    if (state.cat && f.category !== state.cat) return false;
+    if (state.taintOnly && !f.tainted) return false;
+    if (state.undefendedOnly && !(f.tainted && f.defense === "none")) return false;
+    if (state.q) {
+      const hay = (f.sink + " " + f.sinkFile + " " + f.entryFile + " " + f.categoryLabel + " " + (f.origin || "")).toLowerCase();
+      if (!hay.includes(state.q)) return false;
+    }
+    return true;
   });
-  out+='</div>';
-  return out;
 }
-
-// clicking "dig" expands the callee inline, right under the call site.
-function digInto(targetKey, btnId, ancestorStr){
-  const btn=document.getElementById(btnId);
-  const ancestors = ancestorStr? ancestorStr.split("|"):[];
-  // insert child tree right after the code block containing the button
-  const codeDiv = btn.closest(".code");
-  let holder = codeDiv.nextElementSibling;
-  if(holder && holder.classList.contains("kids")){
-    // toggle off
-    holder.remove(); btn.classList.remove("done"); return;
+function renderList() {
+  const flows = visibleFlows();
+  const listEl = document.getElementById("list");
+  if (!flows.length) { listEl.innerHTML = `<div class="empty">No flows match.</div>`; return; }
+  let html = "", lastCat = null;
+  for (const f of flows) {
+    if (f.category !== lastCat) {
+      html += `<div class="group-label" style="color:${catColor(f.category)}">${esc(f.categoryLabel)}</div>`;
+      lastCat = f.category;
+    }
+    html += `<div class="flow-row ${state.selected === f.id ? "sel" : ""}" data-id="${f.id}">
+      <div class="dot" style="background:${catColor(f.category)}"></div>
+      <div class="fr-main">
+        <div class="fr-title">
+          <span class="fr-sink">${esc(f.sink)}()</span>
+          <span class="badge ${f.tainted ? "taint" : "reach"}">${f.tainted ? "tainted" : "reachable"}</span>
+          ${f.tainted && DEF[f.defense].badge ? `<span class="def ${DEF[f.defense].cls}">${DEF[f.defense].badge}</span>` : ""}
+        </div>
+        <div class="fr-sub">${f.tainted ? `${esc(f.origin)} &rarr; ${esc(f.sink)}` : "input source not proven"}</div>
+        <div class="fr-file">${esc(f.sinkFile)}:${f.sinkLine}</div>
+      </div></div>`;
   }
-  const kids=document.createElement("div");
-  kids.className="kids";
-  kids.innerHTML = renderNode(targetKey, ancestors.concat(findOwnerKey(btn)), false);
-  codeDiv.after(kids);
-  btn.classList.add("done");
+  listEl.innerHTML = html;
 }
-// find which function key owns the code block a button sits in (walk up to .tnode head fname)
-function findOwnerKey(btn){
-  const node=btn.closest(".tnode");
-  if(!node) return "";
-  const fname=node.querySelector(".fname");
-  if(!fname) return "";
-  // match by name+loc against F
-  const loc=node.querySelector(".floc").textContent;
-  const name=fname.textContent;
-  for(const k in F){ if(F[k].name===name && (F[k].file+":"+F[k].line+"–"+F[k].endline)===loc) return k; }
-  return "";
-}
+document.getElementById("list").addEventListener("click", (e) => {
+  const row = e.target.closest(".flow-row"); if (!row) return;
+  state.selected = Number(row.dataset.id);
+  renderList(); renderDetail();
+});
 
-function toggleNode(nid){
-  const c=document.getElementById(nid+"_c");
-  const b=document.getElementById(nid+"_b");
-  const open=b.style.display!=="none";
-  b.style.display=open?"none":"block";
-  c.classList.toggle("open",!open);
-}
+// Plain-language: what each sink category DOES, and what an attacker GAINS.
+const CAT_EXPLAIN = {
+  command_exec: "runs an operating-system shell command",
+  code_exec: "executes code at runtime",
+  sql: "runs a database (SQL) query",
+  file_inclusion: "loads and executes another file by its path",
+  file_io: "opens or reads/writes a file by its path",
+  ssrf: "makes an outbound network request to a URL",
+  xss: "writes text into the HTTP response shown in the browser",
+  header_injection: "sets an HTTP response header",
+  deserialization: "rebuilds program objects from serialized data",
+  variable_injection: "creates variables from input",
+  template_injection: "renders a template from a string",
+  ldap: "runs an LDAP directory query",
+  response_write: "writes to the HTTP response",
+};
+const CAT_IMPACT = {
+  command_exec: "they can run their own commands on the server (remote code execution)",
+  code_exec: "they can run arbitrary code",
+  sql: "they can read or modify the database (SQL injection)",
+  file_inclusion: "they can load unintended local or remote files (LFI / RFI)",
+  file_io: "they can read or write files they shouldn't (path traversal)",
+  ssrf: "the server can be made to reach internal systems (SSRF)",
+  xss: "their script runs in other users' browsers (XSS)",
+  header_injection: "they can inject headers or open redirects",
+  deserialization: "they may achieve code execution",
+  variable_injection: "they can overwrite trusted variables",
+  template_injection: "they can execute template code (SSTI)",
+  ldap: "they can alter the directory query (LDAP injection)",
+  response_write: "they can control response content",
+};
+const explainOf = (c) => CAT_EXPLAIN[c] || "a sensitive operation";
+const impactOf = (c) => CAT_IMPACT[c] || "it may be abusable";
+const srcExplain = (o) =>
+  o && o.indexOf("$_") === 0
+    ? "a value the attacker sends in the request (URL, form field, cookie, or header)"
+    : "untrusted input";
 
-function expandAll(key){
-  // render the whole reachable tree eagerly (bounded by cycle detection)
-  const tree=document.getElementById("tree");
-  tree.innerHTML=renderFullTree(key, [], true);
-}
-function renderFullTree(key, ancestors, isEntry){
-  const fn=F[key]; if(!fn) return "";
-  if(ancestors.includes(key)){
-    return `<div class="tnode"><div class="head"><span class="caret">&#9656;</span>
-      <span class="fname">${esc(fn.name)}</span><span class="cycle" style="margin-left:8px">&#8635; cycle</span></div></div>`;
-  }
-  const childTrees = fn.children.map(c=>renderFullTree(c.target, ancestors.concat(key), false)).join("");
-  const badges=[];
-  if(fn.nsinks) badges.push(`<span class="badge sink">${fn.nsinks} sink</span>`);
-  if(fn.nblind) badges.push(`<span class="badge blind">${fn.nblind} blind</span>`);
-  if(!fn.children.length) badges.push(`<span class="badge leaf">leaf</span>`);
-  const cls=["tnode"]; if(isEntry)cls.push("entry"); if(fn.nsinks)cls.push("hassink"); if(fn.nblind)cls.push("hasblind");
-  return `<div class="${cls.join(' ')}">
-    <div class="head"><span class="caret open">&#9656;</span>
-      <span class="fname">${esc(fn.name)}</span>
-      <span class="floc">${esc(fn.file)}:${fn.line}&ndash;${fn.endline}</span>
-      <span class="badges">${badges.join("")}</span></div>
-    <div>${renderCode(fn, ancestors.concat(key))}${childTrees?`<div class="kids">${childTrees}</div>`:""}</div>
+// ── Immersive pipeline: SOURCE → carrier → control gate → SINK ──
+function pnode(cls, icon, kind, title, sub, file, line, tip) {
+  const clickable = file ? `data-open data-file="${esc(file)}" data-l="${line}"` : "";
+  const loc = file ? `<div class="loc">${esc(String(file).split("/").pop())}:${line} &#8614;</div>` : "";
+  return `<div class="pnode ${cls}" ${clickable} title="${esc(tip || "")}">
+    <div class="icon">${icon}</div>
+    <div class="kind">${esc(kind)}</div>
+    <div class="title">${esc(title)}</div>
+    ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}
+    ${loc}
   </div>`;
 }
+const pconn = (cls) => `<div class="pconn ${cls}"><div class="rail"><div class="packet"></div><div class="arrow"></div></div></div>`;
 
-// ---- ledger view ----
-const BUCKETS=[["entry_point","Entry points"],["reachable_with_sink","Reachable &mdash; reaches a sink"],
-  ["reachable_no_sink","Reachable &mdash; no sink"],["not_reachable_from_entry","Not reachable from any entry point"]];
-let allKeys=[]; BUCKETS.forEach(([b])=>((D.ledger[b]||[]).forEach(r=>allKeys.push(r.key))));
-function showLedger(){
-  document.querySelectorAll(".epitem").forEach(x=>x.classList.remove("active"));
-  const done=allKeys.filter(k=>dispo[k]).length, pct=allKeys.length?Math.round(done/allKeys.length*100):100;
-  let h=`<div class="breadcrumb">coverage ledger</div>
-   <div style="position:sticky;top:0;background:var(--bg);padding:6px 0 10px">
-   <div style="height:9px;background:#e4e3dc;border-radius:5px;overflow:hidden"><div style="height:100%;background:var(--ok);width:${pct}%"></div></div>
-   <div style="font-size:12px;color:var(--muted);margin-top:5px">${done} of ${allKeys.length} functions dispositioned (${pct}%)</div>
-   <div style="font-size:12px;margin-top:6px;padding:8px 12px;border-radius:8px;${done===allKeys.length&&allKeys.length?'background:var(--okbg);color:var(--ok);border:1px solid #9fe1cb':'background:var(--redbg);color:var(--red);border:1px solid #f7c1c1'}">
-   ${done===allKeys.length&&allKeys.length?'&check; 100% source coverage &mdash; report can be finalized.':'Report cannot be finalized until every function is dispositioned ('+(allKeys.length-done)+' remaining).'}</div></div>`;
-  BUCKETS.forEach(([b,title])=>{
-    const rows=D.ledger[b]||[]; if(!rows.length) return;
-    h+=`<h3 style="font-size:13px;margin:18px 0 8px">${title} <span style="color:var(--muted);font-weight:400">(${rows.length})</span></h3>
-      <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden">
-      <tr><th style="text-align:left;padding:8px 11px;font-size:11px;color:var(--muted);background:#faf9f6">Function</th>
-      <th style="text-align:left;padding:8px 11px;font-size:11px;color:var(--muted);background:#faf9f6">Location</th>
-      <th style="text-align:left;padding:8px 11px;font-size:11px;color:var(--muted);background:#faf9f6">Sinks</th>
-      <th style="text-align:left;padding:8px 11px;font-size:11px;color:var(--muted);background:#faf9f6;width:190px">Disposition</th></tr>`;
-    rows.forEach(r=>{
-      const cats=(r.cats||[]).map(c=>`<span class="badge sink" style="background:${(CATC[c]||'#a32d2d')}22;color:${CATC[c]||'#a32d2d'}">${esc(c)}</span>`).join("")||(r.nblind?'<span class="badge blind">blind</span>':'<span style="color:#bbb">&mdash;</span>');
-      const st=dispo[r.key]||"";
-      h+=`<tr><td style="padding:8px 11px;border-top:1px solid var(--line)"><code style="font-size:12px">${esc(r.name)}</code></td>
-        <td style="padding:8px 11px;border-top:1px solid var(--line);color:var(--muted);font-size:11.5px">${esc(r.file)}:${r.line}</td>
-        <td style="padding:8px 11px;border-top:1px solid var(--line)">${cats}</td>
-        <td style="padding:8px 11px;border-top:1px solid var(--line)">
-          <span class="tbtn" style="padding:3px 9px;${st==='safe'?'background:var(--okbg);color:var(--ok);border-color:#9fe1cb':''}" onclick="setD('${esc(r.key)}','safe')">safe</span>
-          <span class="tbtn" style="padding:3px 9px;${st==='finding'?'background:var(--redbg);color:var(--red);border-color:#f7c1c1':''}" onclick="setD('${esc(r.key)}','finding')">finding</span>
-          <span class="tbtn" style="padding:3px 9px;${st==='skip'?'background:#f1efe8;color:#444':''}" onclick="setD('${esc(r.key)}','skip')">n/a</span>
-        </td></tr>`;
-    });
-    h+=`</table>`;
-  });
-  document.getElementById("main").innerHTML=h;
-}
-function setD(k,v){dispo[k]=(dispo[k]===v?undefined:v);showLedger();}
-
-// ---- blind spots view ----
-function showBlind(){
-  document.querySelectorAll(".epitem").forEach(x=>x.classList.remove("active"));
-  let h=`<div class="breadcrumb">blind spots &mdash; the shadows on the X-ray</div>
-    <div style="background:var(--amberbg);border-left:3px solid var(--amber);padding:10px 13px;border-radius:0 6px 6px 0;font-size:12.5px;color:#5a3806;margin-bottom:14px">
-    Showing these is what separates a trustworthy X-ray from a scanner that quietly skips what it can't parse.
-    "No flow here" and "we couldn't see here" are different statements &mdash; each region below needs manual inspection.</div>`;
-  if(!D.blind_rows.length){ h+=`<div class="empty">No dynamic-dispatch blind spots detected.</div>`; }
-  else{
-    h+=`<div class="blind" style="background:var(--dark);border-radius:10px;padding:4px 4px 8px">
-      <table style="width:100%;border-collapse:collapse">
-      <tr><th style="text-align:left;padding:9px 12px;font-size:11px;color:#c9c9d2">Function</th>
-      <th style="text-align:left;padding:9px 12px;font-size:11px;color:#c9c9d2">Location</th>
-      <th style="text-align:left;padding:9px 12px;font-size:11px;color:#c9c9d2">Unseeable call</th>
-      <th style="text-align:left;padding:9px 12px;font-size:11px;color:#c9c9d2">Why the X-ray goes dark</th></tr>`;
-    D.blind_rows.forEach(r=>{
-      h+=`<tr><td style="padding:9px 12px;border-top:1px solid #45454f;color:#e8e8ee"><code style="background:#45454f;color:#ffe600;padding:1px 5px;border-radius:4px">${esc(r.func)}</code></td>
-        <td style="padding:9px 12px;border-top:1px solid #45454f;color:#c9c9d2;font-size:11.5px">${esc(r.file)}:${r.line}</td>
-        <td style="padding:9px 12px;border-top:1px solid #45454f"><code style="background:#45454f;color:#ffe600;padding:1px 5px;border-radius:4px">${esc(r.call)}</code></td>
-        <td style="padding:9px 12px;border-top:1px solid #45454f;color:#e8e8ee">${esc(r.reason)}</td></tr>`;
-    });
-    h+=`</table></div>`;
+function pipelineHtml(f) {
+  const p = [];
+  if (f.tainted) {
+    p.push(pnode("src", "🌐", "Source · untrusted input", f.origin, srcExplain(f.origin),
+      f.sinkFile, f.originLine, "Attacker-controlled data enters the program here. Click to open."));
+    p.push(pconn("hot"));
+    if (f.via && f.via.length) {
+      p.push(pnode("carrier", "📦", "Carried by", f.via.join(", "), "value is copied and travels on — still tainted",
+        f.sinkFile, f.originLine, "The tainted value is stored in this variable and carried toward the sink."));
+      p.push(pconn("hot"));
+    }
+    const rel = (f.controls || []).filter((c) => c.relevant);
+    if (rel.length) {
+      p.push(pnode("gate-ok", "🛡️", "Control · defends this", rel.map((c) => c.label).join(", "),
+        "check it wraps the whole value", f.sinkFile, f.sinkLine,
+        "A control that defends this sink type is applied — verify it covers the entire value and every path."));
+    } else if ((f.controls || []).length) {
+      p.push(pnode("gate-weak", "⚠️", "Control · wrong type", f.controls.map((c) => c.label).join(", "),
+        "does not defend " + String(f.categoryLabel).toLowerCase(), f.sinkFile, f.sinkLine,
+        "A control is present but it doesn't defend this sink's category — e.g. an HTML escaper on a shell command."));
+    } else {
+      p.push(pnode("gate-bad", "🚫", "No control", "nothing in between",
+        "no sanitizer, validator or escaper found", f.sinkFile, f.sinkLine,
+        "Nothing was found between the source and the sink."));
+    }
+    p.push(pconn(f.defense === "guarded" ? "safe" : "hot"));
+  } else {
+    p.push(pnode("entry", "⚡", "Entry point", f.entryName || "entry", "execution starts here (web-reachable)",
+      f.entryFile, 1, "Where execution can start from outside."));
+    p.push(pconn(""));
+    p.push(pnode("carrier", "❓", "Input path", "not proven", "couldn't prove attacker input reaches the sink",
+      null, 0, "CodeXray could not prove untrusted input reaches this sink — check by hand."));
+    p.push(pconn(""));
   }
-  document.getElementById("main").innerHTML=h;
+  p.push(pnode("sink", "💥", "Sink · dangerous op", f.sink + "()", explainOf(f.category),
+    f.sinkFile, f.sinkLine, "The dangerous operation. Click to open."));
+  return `<div class="pipeline-wrap"><div class="pipeline">${p.join("")}</div></div>`;
 }
 
-// open first entry by default
-if(D.entries.length) openEntry(D.entries[0].key,0);
-else document.getElementById("main").innerHTML='<div class="empty">No entry points found.</div>';
+function verdictHtml(f) {
+  if (!f.tainted) {
+    return `<div class="verdict warn"><span class="vicon">❓</span><div><b>Reachable, not proven.</b> <code>${esc(f.sink)}()</code> can be reached from an entry point, but CodeXray couldn't prove attacker input gets there. Check by hand whether it can — if it can and isn't cleaned, ${impactOf(f.category)}.</div></div>`;
+  }
+  if (f.defense === "guarded") {
+    const rel = (f.controls || []).filter((c) => c.relevant).map((c) => c.label).join(", ");
+    return `<div class="verdict ok"><span class="vicon">✅</span><div><b>Guarded.</b> <code>${esc(rel)}</code> defends ${esc(String(f.categoryLabel).toLowerCase())} and is applied on this path. Verify it wraps the <i>whole</i> value, on <i>every</i> path, and can't be bypassed — then this is likely safe.</div></div>`;
+  }
+  if (f.defense === "weak") {
+    return `<div class="verdict warn"><span class="vicon">⚠️</span><div><b>Control present, but wrong type.</b> The control(s) found don't defend ${esc(String(f.categoryLabel).toLowerCase())}. Treat as likely exploitable until you prove otherwise — if it is, ${impactOf(f.category)}.</div></div>`;
+  }
+  return `<div class="verdict bad"><span class="vicon">⛔</span><div><b>Undefended.</b> Attacker input reaches <code>${esc(f.sink)}()</code> with no control in between. If it really is unescaped all the way, ${impactOf(f.category)}.</div></div>`;
+}
+
+function renderDetail() {
+  const f = DATA.flows.find((x) => x.id === state.selected);
+  const el = document.getElementById("detail");
+  if (!f) { el.innerHTML = `<div class="empty">Select a flow.</div>`; return; }
+  const color = catColor(f.category);
+
+  const summary = f.tainted
+    ? `Untrusted <span class="src">${esc(f.origin)}</span> reaches <span class="snk">${esc(f.sink)}()</span> — ${esc(f.sinkWhy)}.`
+    : `Entry point reaches <span class="snk">${esc(f.sink)}()</span> — ${esc(f.sinkWhy)}.`;
+
+  const via = (f.via && f.via.length) ? f.via.join(", ") : "";
+  const reading = f.tainted
+    ? `<div class="reading">Read it as a sentence: an attacker controls <span class="src">${esc(f.origin)}</span>${via ? `, its value is copied into <span class="src">${esc(via)}</span>,` : ""} and that value travels into <span class="snk">${esc(f.sink)}()</span>, which ${explainOf(f.category)}. If nothing cleans it in between, ${impactOf(f.category)}.</div>`
+    : `<div class="reading"><span class="snk">${esc(f.sink)}()</span> ${explainOf(f.category)} and is reachable from a web entry point. It was <b>not</b> proven that attacker input reaches it — check whether it can. If it can and isn't cleaned, ${impactOf(f.category)}.</div>`;
+
+  const note = f.tainted
+    ? `<b>What to do:</b> ${DEF[f.defense].todo}`
+    : `<b>What to do:</b> trace back from this sink to check whether any entry-point input can reach it. If it can and isn't cleaned, it's exploitable.`;
+
+  // existing defenses found on the path
+  let controlsLine = "";
+  if (f.tainted) {
+    if (f.controls && f.controls.length) {
+      const chips = f.controls.map((c) =>
+        `<span class="ctrl ${c.relevant ? "ok" : "no"}">${esc(c.label)} ${c.relevant ? "✓" : "✗ (not for this sink)"}</span>`).join("");
+      controlsLine = `<div class="controls-line"><span class="lbl">Existing controls</span>${chips}<div style="font-size:11px;color:var(--muted);margin-top:5px">${DEF[f.defense].line}</div></div>`;
+    } else {
+      controlsLine = `<div class="controls-line none"><span class="lbl" style="color:inherit">Existing controls</span>None found — ${DEF.none.line.toLowerCase()}</div>`;
+    }
+  }
+
+
+  const fn = DATA.funcs[f.sinkKey];
+  let codeHtml = "";
+  if (fn && fn.body) {
+    codeHtml = fn.body.map((l) => {
+      const isSrc = f.tainted && l.n === f.originLine;
+      const isSnk = l.n === f.sinkLine;
+      const cls = isSrc ? "hl-source" : isSnk ? "hl-sink" : "";
+      const tag = isSrc ? `<span class="tag source">source</span>` : isSnk ? `<span class="tag sink">sink</span>` : "";
+      return `<div class="cl ${cls}" data-line="${l.n}"><span class="ln">${l.n}</span><span class="tx">${esc(l.t)}${tag}<span class="jump">&#8614; open</span></span></div>`;
+    }).join("");
+  }
+
+  el.innerHTML = `
+    <div class="d-head" style="border-left:4px solid ${color}">
+      <div class="d-cat">${esc(f.categoryLabel)} &middot; ${f.tainted ? "input reaches sink" : "reachable sink"} ${f.tainted && DEF[f.defense].badge ? `<span class="def ${DEF[f.defense].cls}">${DEF[f.defense].badge}</span>` : ""}</div>
+      <div class="d-summary">${summary}</div>
+      ${reading}
+      ${controlsLine}
+      <div class="d-note">${note}</div>
+    </div>
+    ${pipelineHtml(f)}
+    ${verdictHtml(f)}
+    <div class="code-panel">
+      <h3>${esc(f.sinkFunc)} — <a data-open data-file="${esc(f.sinkFile)}" data-l="${f.sinkLine}">${esc(f.sinkFile)}</a></h3>
+      <div class="code" id="code">${codeHtml || '<div class="empty">Source not available.</div>'}</div>
+    </div>
+    <div class="ai-panel">
+      <div class="ai-head">
+        <button class="ai-btn" id="aiBtn">&#10024; Explain with AI</button>
+        <span class="ai-model" id="aiModel"></span>
+      </div>
+      <div class="ai-body" id="aiBody"></div>
+    </div>`;
+
+  const aiBtn = el.querySelector("#aiBtn");
+  if (aiBtn) aiBtn.addEventListener("click", () => requestInsight(f));
+  renderAi(f);
+
+  const code = el.querySelector("#code");
+  if (code) code.addEventListener("click", (e) => {
+    const cl = e.target.closest(".cl"); if (!cl) return;
+    open(f.sinkFile, Number(cl.dataset.line));
+  });
+  const hl = el.querySelector(".cl.hl-sink") || el.querySelector(".cl.hl-source");
+  if (hl) hl.scrollIntoView({ block: "center" });
+}
+
+document.getElementById("detail").addEventListener("click", (e) => {
+  const a = e.target.closest("[data-open]"); if (!a) return;
+  open(a.dataset.file, Number(a.dataset.l));
+});
+
+// ---- Blind Spots view ----
+// Places static analysis cannot follow (dynamic dispatch, reflection, dynamic
+// include). MARKED, never hidden — the coverage the tool is honest about.
+const BLIND_HELP = {
+  "dynamic function dispatch": "The called function is chosen at runtime (e.g. call_user_func / $fn()). The call graph can't know the real target — trace it by hand.",
+  "runtime symbol table mutation": "extract()/parse_str() create variables from data at runtime; later code may use variables you won't see declared.",
+  "variable variable ($$x) — dynamic name": "A variable's name is itself computed at runtime.",
+  "variable function ($fn()) — dynamic dispatch": "The function to call is held in a variable — the real callee is unknown statically.",
+};
+function renderBlind() {
+  const rows = DATA.blind_rows || [];
+  const el = document.getElementById("view-blind");
+  const intro = `<div class="intro"><b>Blind spots</b> are call sites where static analysis cannot see what runs next — dynamic dispatch, reflection, dynamic includes. CodeXray <b>marks</b> them instead of guessing, so you know exactly where the automated view goes dark and manual review is required.</div>`;
+  if (!rows.length) { el.innerHTML = intro + `<div class="empty">No blind spots found — the call graph is fully resolvable here.</div>`; return; }
+  const body = rows.map((r) => `
+    <tr>
+      <td><span class="pill blind">${esc(r.reason)}</span></td>
+      <td class="mono">${esc(r.call)}()</td>
+      <td><a class="loc" data-open data-file="${esc(r.file)}" data-l="${r.line}">${esc(r.file)}:${r.line} &#8614;</a></td>
+      <td class="mono">${esc(r.func)}</td>
+      <td>${esc(BLIND_HELP[r.reason] || "")}</td>
+    </tr>`).join("");
+  el.innerHTML = intro + `<table class="grid">
+    <thead><tr><th>Kind</th><th>Call</th><th>Location</th><th>Function</th><th>Why it's blind</th></tr></thead>
+    <tbody>${body}</tbody></table>`;
+}
+
+// ---- Coverage Ledger view ----
+const LEDGER_META = {
+  entry_point: ["Entry points", "Reachable directly from outside (routes, scripts, CLI)."],
+  reachable_with_sink: ["Reachable · has a sink", "Called from an entry and contains a dangerous sink — prime review targets."],
+  reachable_no_sink: ["Reachable · no sink", "Called from an entry but no sink of its own."],
+  not_reachable_from_entry: ["Not reachable from an entry", "No path from any entry point found (dead code, or reached only via a blind spot)."],
+};
+function renderLedger() {
+  const el = document.getElementById("view-ledger");
+  const led = DATA.ledger || {};
+  const intro = `<div class="intro"><b>Coverage ledger</b> — every function gets a disposition so nothing is silently skipped. This is how CodeXray proves what it did and didn't account for.</div>`;
+  const order = ["entry_point", "reachable_with_sink", "reachable_no_sink", "not_reachable_from_entry"];
+  let html = intro;
+  for (const bucket of order) {
+    const rows = led[bucket] || [];
+    const [label, blurb] = LEDGER_META[bucket] || [bucket, ""];
+    html += `<div class="ledger-grp"><h3>${esc(label)} <span class="n">${rows.length} — ${esc(blurb)}</span></h3>`;
+    if (!rows.length) { html += `<div class="intro" style="margin:0">none</div></div>`; continue; }
+    html += `<table class="grid"><thead><tr><th>Function</th><th>Location</th><th>Sink categories</th><th>Blind</th></tr></thead><tbody>`;
+    for (const r of rows.slice(0, 500)) {
+      html += `<tr>
+        <td class="mono">${esc(r.name)}</td>
+        <td><a class="loc" data-open data-file="${esc(r.file)}" data-l="${r.line}">${esc(r.file)}:${r.line} &#8614;</a></td>
+        <td>${(r.cats || []).map((c) => `<span class="pill">${esc(c)}</span>`).join(" ") || "<span style='color:var(--muted)'>—</span>"}</td>
+        <td>${r.nblind ? `<span class="pill blind">${r.nblind}</span>` : ""}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+    if (rows.length > 500) html += `<div class="intro" style="margin-top:6px">…and ${rows.length - 500} more (capped for display).</div>`;
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ---- Inventory view (complete attack surface) ----
+const INV = DATA.inventory || { sinks: [], sources: [] };
+const reachTag = (r) => `<span class="tag-reach ${r ? "yes" : "no"}">${r ? "reachable" : "unreached"}</span>`;
+function invSinkRow(s) {
+  const ctl = (s.controls && s.controls.length)
+    ? s.controls.map((c) => `<span class="ctrl ${c.relevant ? "ok" : "no"}">${esc(c.label)} ${c.relevant ? "✓" : "✗"}</span>`).join(" ")
+    : (s.tainted ? "<span class='ctrl no'>none</span>" : "<span style='color:var(--muted)'>—</span>");
+  return `<tr>
+    <td class="mono">${esc(s.name)}()</td>
+    <td><span class="pill" style="color:${catColor(s.category)};border-color:${catColor(s.category)}">${esc(s.categoryLabel)}</span></td>
+    <td><a class="loc" data-open data-file="${esc(s.file)}" data-l="${s.line}">${esc(s.file)}:${s.line} &#8614;</a></td>
+    <td class="mono">${esc(s.func)}</td>
+    <td>${reachTag(s.reachable)}</td>
+    <td>${s.tainted ? "<span class='badge taint'>tainted</span>" : "<span style='color:var(--muted)'>—</span>"}</td>
+    <td>${ctl}</td></tr>`;
+}
+function renderInventory() {
+  const el = document.getElementById("view-inventory");
+  el.innerHTML =
+    `<div class="intro"><b>Complete attack surface.</b> Every entry point, sink, and source found — whether or not it forms a vulnerable flow. Browse the whole codebase here; the <b>Taint Flows</b> tab ranks the connected source→sink paths by risk. <b>reachable</b> = called from an entry point; <b>unreached</b> = not reachable from any recognized entry (may still run via a blind spot).</div>` +
+    `<input type="search" class="inv-filter" id="invFilter" placeholder="Filter by name, file, function, or category…" />` +
+    `<div id="invTables"></div>`;
+  drawInv("");
+  document.getElementById("invFilter").addEventListener("input", (e) => drawInv(e.target.value.toLowerCase()));
+}
+function drawInv(q) {
+  const match = (s) => !q || s.toLowerCase().includes(q);
+  const entries = (DATA.entries || []).filter((e) => match(`${e.name} ${e.key} ${(e.sink_cats || []).join(" ")}`));
+  const sinks = INV.sinks.filter((s) => match(`${s.name} ${s.file} ${s.func} ${s.categoryLabel}`));
+  const sources = INV.sources.filter((s) => match(`${s.name} ${s.file} ${s.func}`));
+  const loc = (f, l) => `<a class="loc" data-open data-file="${esc(f)}" data-l="${l}">${esc(f)}:${l} &#8614;</a>`;
+  const fileOf = (key) => (DATA.funcs[key] ? DATA.funcs[key].file : (key.split("::")[0] || ""));
+  const lineOf = (key) => (DATA.funcs[key] ? DATA.funcs[key].line : 1);
+
+  let html = "";
+  // Entry points
+  html += `<div class="ledger-grp"><h3>Entry points <span class="n">${entries.length} — where execution can start</span></h3>`;
+  html += `<table class="grid"><thead><tr><th>Entry</th><th>Kind</th><th>Location</th><th>Reaches sink types</th><th>Sources</th></tr></thead><tbody>`;
+  for (const e of entries.slice(0, 800)) {
+    html += `<tr>
+      <td class="mono">${esc(e.name)}</td>
+      <td>${esc(e.kind || "")}</td>
+      <td>${loc(fileOf(e.key), lineOf(e.key))}</td>
+      <td>${(e.sink_cats || []).map((c) => `<span class="pill" style="color:${catColor(c)}">${esc(c)}</span>`).join(" ") || "<span style='color:var(--muted)'>—</span>"}</td>
+      <td>${(e.sources || []).map((s) => `<span class="pill">${esc(s)}</span>`).join(" ") || "<span style='color:var(--muted)'>—</span>"}</td></tr>`;
+  }
+  html += `</tbody></table></div>`;
+
+  // Sinks
+  html += `<div class="ledger-grp"><h3>Sinks <span class="n">${sinks.length} — dangerous operations</span></h3>`;
+  html += `<table class="grid"><thead><tr><th>Sink</th><th>Category</th><th>Location</th><th>Function</th><th>Reachable</th><th>Tainted</th><th>Controls</th></tr></thead><tbody>`;
+  html += sinks.slice(0, 1500).map(invSinkRow).join("");
+  html += `</tbody></table>`;
+  if (sinks.length > 1500) html += `<div class="intro" style="margin-top:6px">…and ${sinks.length - 1500} more (capped for display).</div>`;
+  html += `</div>`;
+
+  // Sources
+  html += `<div class="ledger-grp"><h3>Sources <span class="n">${sources.length} — untrusted input entering the code</span></h3>`;
+  html += `<table class="grid"><thead><tr><th>Source</th><th>Location</th><th>Function</th><th>Reachable</th></tr></thead><tbody>`;
+  for (const s of sources.slice(0, 1500)) {
+    html += `<tr><td class="mono">${esc(s.name)}</td><td>${loc(s.file, s.line)}</td><td class="mono">${esc(s.func)}</td><td>${reachTag(s.reachable)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+  if (sources.length > 1500) html += `<div class="intro" style="margin-top:6px">…and ${sources.length - 1500} more (capped for display).</div>`;
+  html += `</div>`;
+
+  document.getElementById("invTables").innerHTML = html;
+}
+
+// ---- tab switching ----
+document.getElementById("tab-flows-n").textContent = DATA.flows.length;
+document.getElementById("tab-inv-n").textContent = (DATA.entries || []).length + INV.sinks.length + INV.sources.length;
+document.getElementById("tab-blind-n").textContent = (DATA.blind_rows || []).length;
+document.getElementById("tab-ledger-n").textContent = DATA.stats.functions ?? "";
+let blindRendered = false, ledgerRendered = false, invRendered = false;
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const t = e.target.closest(".tab"); if (!t) return;
+  const view = t.dataset.view;
+  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+  for (const v of ["flows", "inventory", "blind", "ledger"])
+    document.getElementById("view-" + v).style.display = v === view ? "" : "none";
+  if (view === "inventory" && !invRendered) { renderInventory(); invRendered = true; }
+  if (view === "blind" && !blindRendered) { renderBlind(); blindRendered = true; }
+  if (view === "ledger" && !ledgerRendered) { renderLedger(); ledgerRendered = true; }
+});
+// jump-to-source from the table views
+for (const id of ["view-inventory", "view-blind", "view-ledger"]) {
+  document.getElementById(id).addEventListener("click", (e) => {
+    const a = e.target.closest("[data-open]"); if (!a) return;
+    open(a.dataset.file, Number(a.dataset.l));
+  });
+}
+
+// ---- AI insights ----
+const insights = {}; // flow id -> {status:'loading'|'done'|'error', markdown?, error?, model?, needsKey?}
+
+function flowCode(f) {
+  const fn = DATA.funcs[f.sinkKey];
+  return fn && fn.body ? fn.body.map((l) => l.t).join("\n") : (f.sinkCode || "");
+}
+function flowLang(f) {
+  const fn = DATA.funcs[f.sinkKey];
+  return (fn && fn.lang) || "";
+}
+function requestInsight(f) {
+  insights[f.id] = { status: "loading" };
+  renderAi(f);
+  vscode.postMessage({
+    type: "explain",
+    id: f.id,
+    flow: {
+      categoryLabel: f.categoryLabel, category: f.category,
+      sink: f.sink, sinkWhy: f.sinkWhy, sinkFile: f.sinkFile,
+      sinkFunc: f.sinkFunc, sinkLine: f.sinkLine,
+      tainted: f.tainted, origin: f.origin, originLine: f.originLine,
+      via: f.via || [], language: flowLang(f), code: flowCode(f),
+      controls: f.controls || [], defense: f.defense,
+    },
+  });
+}
+function renderAi(f) {
+  const body = document.getElementById("aiBody");
+  const btn = document.getElementById("aiBtn");
+  const modelEl = document.getElementById("aiModel");
+  if (!body) return;
+  const ins = insights[f.id];
+  if (!ins) { body.innerHTML = ""; if (modelEl) modelEl.textContent = ""; if (btn) btn.disabled = false; return; }
+  if (ins.status === "loading") {
+    if (btn) btn.disabled = true;
+    body.innerHTML = `<div class="ai-loading"><span class="spinner"></span> Analyzing this flow…</div>`;
+    return;
+  }
+  if (btn) btn.disabled = false;
+  if (ins.status === "error") {
+    const setkey = ins.needsKey ? ` <span class="ai-setkey" id="aiSetKey">Set API key</span>` : "";
+    body.innerHTML = `<div class="ai-err">${esc(ins.error)}${setkey}</div>`;
+    const sk = document.getElementById("aiSetKey");
+    if (sk) sk.addEventListener("click", () => vscode.postMessage({ type: "setKey" }));
+    return;
+  }
+  if (modelEl && ins.model) modelEl.textContent = ins.model;
+  body.innerHTML = mdToHtml(ins.markdown) +
+    `<div class="ai-disclaimer">AI-generated — advisory only. Verify against the code; the analyst decides.</div>`;
+}
+
+// minimal, safe Markdown → HTML (escape first, then apply a small subset)
+function mdToHtml(md) {
+  const lines = String(md).replace(/\r/g, "").split("\n");
+  let html = "", inCode = false, inList = false;
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  for (let raw of lines) {
+    if (/^```/.test(raw.trim())) {
+      if (!inCode) { if (inList) { html += "</ul>"; inList = false; } html += "<pre><code>"; inCode = true; }
+      else { html += "</code></pre>"; inCode = false; }
+      continue;
+    }
+    if (inCode) { html += esc(raw) + "\n"; continue; }
+    const h = raw.match(/^(#{1,3})\s+(.*)$/);
+    if (h) { if (inList) { html += "</ul>"; inList = false; } html += `<h3>${inline(h[2])}</h3>`; continue; }
+    const li = raw.match(/^\s*[-*]\s+(.*)$/);
+    if (li) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(li[1])}</li>`; continue; }
+    if (raw.trim() === "") { if (inList) { html += "</ul>"; inList = false; } continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    html += `<p>${inline(raw)}</p>`;
+  }
+  if (inList) html += "</ul>";
+  if (inCode) html += "</code></pre>";
+  return html;
+}
+
+window.addEventListener("message", (e) => {
+  const m = e.data || {};
+  if (m.type === "insight" && m.id != null) {
+    insights[m.id] = { status: "done", markdown: m.markdown, model: m.model };
+  } else if (m.type === "insightError" && m.id != null) {
+    insights[m.id] = { status: "error", error: m.error, needsKey: m.needsKey };
+  } else return;
+  const f = DATA.flows.find((x) => x.id === state.selected);
+  if (f && f.id === m.id) renderAi(f);
+});
+
+// explainer show/hide
+const explainerEl = document.getElementById("explainer");
+document.getElementById("explainerClose").addEventListener("click", () => { explainerEl.style.display = "none"; });
+document.getElementById("infoToggle").addEventListener("click", () => {
+  explainerEl.style.display = explainerEl.style.display === "none" ? "" : "none";
+});
+
+renderFilters();
+renderList();
+if (DATA.flows.length) { state.selected = DATA.flows[0].id; renderList(); renderDetail(); }
 </script>
 </body>
 </html>

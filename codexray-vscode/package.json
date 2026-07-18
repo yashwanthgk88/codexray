@@ -1,8 +1,8 @@
 {
   "name": "codexray",
   "displayName": "CodeXray",
-  "description": "A source-code X-ray for manual security review of Python. Not a scanner — surfaces entry points, sinks, taint sources, blind spots, and a coverage ledger. The analyst decides.",
-  "version": "0.1.2",
+  "description": "A source-code X-ray for manual security review of Python, PHP, Java, C#/.NET and TypeScript. Not a scanner — surfaces taint flows (source → sink), entry points, blind spots, and a coverage ledger. The analyst decides.",
+  "version": "0.7.0",
   "publisher": "codexray",
   "license": "MIT",
   "repository": {
@@ -19,8 +19,15 @@
   "keywords": [
     "security",
     "python",
+    "php",
+    "java",
+    "csharp",
+    "dotnet",
+    "typescript",
+    "javascript",
     "audit",
     "sast",
+    "taint analysis",
     "code review"
   ],
   "activationEvents": [
@@ -51,7 +58,7 @@
     "viewsWelcome": [
       {
         "view": "codexray.panel",
-        "contents": "A source-code X-ray for manual security review of Python — not a scanner.\n\n[$(search) X-ray Workspace](command:codexray.analyzeWorkspace)\n\nOr right-click any folder in the Explorer → CodeXray: X-ray This Folder."
+        "contents": "A source-code X-ray for manual security review of Python, PHP, Java, C#/.NET and TypeScript — not a scanner.\n\n[$(search) X-ray Workspace](command:codexray.analyzeWorkspace)\n\nOr right-click any folder in the Explorer → CodeXray: X-ray This Folder."
       }
     ],
     "commands": [
@@ -65,8 +72,50 @@
         "command": "codexray.analyzeFolder",
         "title": "X-ray This Folder",
         "category": "CodeXray"
+      },
+      {
+        "command": "codexray.setAiKey",
+        "title": "Set AI API Key",
+        "category": "CodeXray"
       }
     ],
+    "configuration": {
+      "title": "CodeXray",
+      "properties": {
+        "codexray.ai.provider": {
+          "type": "string",
+          "enum": ["anthropic", "openai", "azure", "ollama"],
+          "enumDescriptions": [
+            "Anthropic — Claude (api.anthropic.com)",
+            "OpenAI — or any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM)",
+            "Azure OpenAI — deployment-based endpoint",
+            "Ollama — local models (http://localhost:11434), no API key needed"
+          ],
+          "default": "anthropic",
+          "description": "Which AI provider to use for flow insights."
+        },
+        "codexray.ai.model": {
+          "type": "string",
+          "default": "claude-opus-4-8",
+          "markdownDescription": "Model to use. Examples: `claude-opus-4-8` (Anthropic), `gpt-4o` (OpenAI), your **deployment name** (Azure), `llama3.1` / `qwen2.5-coder` (Ollama)."
+        },
+        "codexray.ai.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Override the API base URL. Blank = provider default. Anthropic: `https://api.anthropic.com`. OpenAI: `https://api.openai.com/v1`. Azure: **required** `https://<resource>.openai.azure.com`. Ollama: `http://localhost:11434/v1`."
+        },
+        "codexray.ai.azureApiVersion": {
+          "type": "string",
+          "default": "2024-06-01",
+          "description": "Azure OpenAI api-version query parameter (Azure provider only)."
+        },
+        "codexray.ai.maxTokens": {
+          "type": "number",
+          "default": 1024,
+          "description": "Max tokens for the AI insight response."
+        }
+      }
+    },
     "menus": {
       "explorer/context": [
         {

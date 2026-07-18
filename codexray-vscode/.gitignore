@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.vsix
+*.map
+*.docx
+scratch/err.txt
+scratch/dvwa-payload.json
+.DS_Store
