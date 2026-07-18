@@ -29,16 +29,14 @@ Python, PHP, JDK, .NET SDK or Node install needed to analyse those sources.
 
 | Language | Extensions | Entry points | Taint chains |
 |---|---|---|---|
-| Python | `.py` | Flask/FastAPI decorators, `__main__` | reachability only¹ |
+| Python | `.py` | Flask/FastAPI decorators, `__main__` | **yes** — `request.*`, `sys.argv`, `input()` |
 | PHP | `.php` `.phtml` `.inc` … | every script top-level, functions/methods | **yes** — source→var→sink |
 | Java | `.java` | `@GetMapping`/`@Path`/…, `main` | **yes** — `@RequestParam`, `request.getParameter` |
 | C# / .NET | `.cs` | `[HttpGet]`/`[Route]`/…, `Main` | **yes** — `Request.Query`, `[FromQuery]` |
 | TypeScript / JS | `.ts` `.mts` `.js` `.mjs` … | Express/Koa routes (`app.get(…)`) | **yes** — `req.query`, incl. destructuring |
 
-¹ Python surfaces entry points, sinks, sources and blind spots but does not yet
-build source→sink taint chains (so Python flows show `defense: n/a`). PHP, Java,
-C# and TypeScript build full taint chains with defense grading. This asymmetry is
-the top item on the roadmap.
+All five languages build full source→variable→sink taint chains with defense
+grading through the shared engine.
 
 ## What it detects
 
@@ -64,9 +62,12 @@ wasm-copy line. See `src/analyzer/adapters/types.ts` for the contract.
 
 ## Honest limits
 
-- **Python has no taint chains yet** (see above) — reachability only.
 - **Taint is intra-function.** A tainted value passed into another function is
   tracked for *reachability* but not carried as taint across the call boundary.
+- **Python route/query params are not auto-seeded.** Python taint enters through
+  `request.*` / `sys.argv` / `input()` access; a FastAPI handler that takes a
+  bare `q: str` query param (no `request.` access) is seen as reachable, not
+  tainted. Flask/Django `request.args.get(...)` is fully tracked.
 - **Call graph resolves by short name** (over-approximate); ambiguity and misses
   are counted (`ambiguous_calls`, `unresolved_calls`) and shown, not hidden.
 - **Controls are over-approximate** — a `guarded` grade means a relevant control

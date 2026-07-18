@@ -7,12 +7,14 @@ import Parser from "web-tree-sitter";
 import { FunctionInfo } from "../model";
 import { LanguageAdapter } from "./types";
 import { pythonKnowledge, ROUTE_DECORATORS, HTTP_VERBS } from "../knowledge/python";
+import { TaintTracker, TaintProfile } from "../taint";
 
 type Node = Parser.SyntaxNode;
 
 const SINKS = pythonKnowledge.sinks;
 const SOURCE_HINTS = pythonKnowledge.sources;
 const BLINDSPOT_CALLS = pythonKnowledge.blindspots;
+const SANITIZERS = pythonKnowledge.sanitizers || {};
 
 /** Best-effort resolve a call target to a dotted string (os.system, cursor.execute). */
 function dottedName(node: Node | null): string | null {
@@ -28,6 +30,37 @@ function dottedName(node: Node | null): string | null {
 }
 
 const lineOf = (node: Node): number => node.startPosition.row + 1;
+
+/** Python grammar specifics for the shared taint engine. */
+const pythonProfile: TaintProfile = {
+  sanitizers: SANITIZERS,
+  varName(node: Node): string | null {
+    return node.type === "identifier" ? node.text : null;
+  },
+  directSource(node: Node): string | null {
+    // Attribute access to a request/env member: request.args, sys.argv, os.environ.
+    if (node.type === "attribute") {
+      const attr = node.childForFieldName("attribute");
+      const obj = node.childForFieldName("object");
+      if (attr && SOURCE_HINTS.has(attr.text)) {
+        const objText = obj ? dottedName(obj) : null;
+        return objText ? `${objText}.${attr.text}` : attr.text;
+      }
+      if (obj && obj.type === "identifier" && SOURCE_HINTS.has(obj.text)) return obj.text;
+    }
+    // input() builtin.
+    if (node.type === "call") {
+      const dn = dottedName(node.childForFieldName("function"));
+      if (dn === "input") return "input()";
+    }
+    return null;
+  },
+  callName(node: Node): string | null {
+    if (node.type !== "call") return null;
+    const dn = dottedName(node.childForFieldName("function"));
+    return dn ? (dn.split(".").pop() as string) : null;
+  },
+};
 
 /** Value of a Python string literal node, minus quotes. */
 function stringValue(node: Node): string | null {
@@ -65,6 +98,7 @@ function visitModule(root: Node, relpath: string): Map<string, FunctionInfo> {
   const functions = new Map<string, FunctionInfo>();
   const scope: string[] = [];
   const funcStack: FunctionInfo[] = [];
+  const tracker = new TaintTracker(pythonProfile);
 
   const qual = (name: string) =>
     scope.length ? `${scope.join(".")}.${name}` : name;
@@ -126,10 +160,28 @@ function visitModule(root: Node, relpath: string): Map<string, FunctionInfo> {
     functions.set(q, fi);
     scope.push(name);
     funcStack.push(fi);
+    tracker.enter();
     const body = node.childForFieldName("body");
     if (body) visit(body);
+    tracker.exit();
     funcStack.pop();
     scope.pop();
+  }
+
+  /** `x = <expr>` / `x += <expr>` — propagate taint to `x`. */
+  function handleAssignment(node: Node, augmented: boolean): void {
+    const left = node.childForFieldName("left");
+    const right = node.childForFieldName("right");
+    if (right) visit(right);
+    if (!funcStack.length) {
+      if (left) visit(left);
+      return;
+    }
+    if (left && left.type === "identifier") {
+      tracker.assign(left.text, right, augmented);
+    } else if (left) {
+      visit(left); // e.g. d[request.args['k']] = ... — left may hold a source
+    }
   }
 
   function recordCall(node: Node): void {
@@ -141,12 +193,15 @@ function visitModule(root: Node, relpath: string): Map<string, FunctionInfo> {
     const short = dn.split(".").pop() as string;
     const ln = lineOf(node);
     fi.calls.push([short, dn, ln]);
+    const args = node.childForFieldName("arguments");
     if (dn in SINKS) {
       const [cat, why] = SINKS[dn];
       fi.sinks.push([dn, cat, why, ln]);
+      tracker.recordSink(fi, dn, cat, ln, args);
     } else if (short in SINKS) {
       const [cat, why] = SINKS[short];
       fi.sinks.push([short, cat, why, ln]);
+      tracker.recordSink(fi, short, cat, ln, args);
     }
     if (dn in BLINDSPOT_CALLS) {
       fi.blindspots.push([dn, BLINDSPOT_CALLS[dn], ln]);
@@ -198,6 +253,12 @@ function visitModule(root: Node, relpath: string): Map<string, FunctionInfo> {
         for (const child of node.namedChildren) visit(child);
         return;
       }
+      case "assignment":
+        handleAssignment(node, false);
+        return;
+      case "augmented_assignment":
+        handleAssignment(node, true);
+        return;
       case "attribute": {
         recordAttributeSource(node);
         const obj = node.childForFieldName("object");

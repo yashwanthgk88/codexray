@@ -52,4 +52,28 @@ export const pythonKnowledge: Knowledge = {
     "eval": "runtime code construction",
     "exec": "runtime code construction",
   },
+  // Defensive controls: matched by the call's LEAF name (shlex.quote -> "quote").
+  // `cats` says which sink classes the control actually defends; "*" = generic.
+  sanitizers: {
+    // command execution
+    "quote": { label: "shlex.quote()", cats: ["command_exec"] },
+    // XSS / HTML output
+    "escape": { label: "escape() / html.escape()", cats: ["xss"] },
+    "clean": { label: "bleach.clean()", cats: ["xss"] },
+    // SQL — psycopg2/sqlite parameter binding can't be seen syntactically; the
+    // markupsafe/db escapers below are the detectable ones.
+    "escape_string": { label: "escape_string()", cats: ["sql"] },
+    // path traversal
+    "basename": { label: "os.path.basename()", cats: ["file_io"] },
+    "abspath": { label: "os.path.abspath()", cats: ["file_io"] },
+    "secure_filename": { label: "secure_filename()", cats: ["file_io"] },
+    // URL / SSRF / headers
+    "quote_plus": { label: "urllib quote_plus()", cats: ["ssrf", "header_injection"] },
+    // generic validators / neutralisers
+    "int": { label: "int()", cats: ["*"] },
+    "float": { label: "float()", cats: ["*"] },
+    "fullmatch": { label: "re.fullmatch() allow-list check", cats: ["*"] },
+    "isdigit": { label: "str.isdigit() check", cats: ["*"] },
+    "isalnum": { label: "str.isalnum() check", cats: ["*"] },
+  },
 };

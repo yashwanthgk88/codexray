@@ -42,6 +42,15 @@ const flowsBy = (p: any, cat: string, def?: string) =>
   p.flows.filter((f: any) => f.category === cat && f.tainted && (def === undefined || f.defense === def));
 
 (async () => {
+  await run("python", "Python", (p) => {
+    check("entry points found (>=4)", p.stats.entry_points >= 4, `got ${p.stats.entry_points}`);
+    check("tainted flows found", p.stats.tainted_flows >= 3, `got ${p.stats.tainted_flows}`);
+    check("undefended command_exec", flowsBy(p, "command_exec", "none").length >= 1);
+    check("undefended sql", flowsBy(p, "sql", "none").length >= 1);
+    check("guarded command_exec (shlex.quote)", flowsBy(p, "command_exec", "guarded").length >= 1);
+    check("weak sql (html.escape wrong defense)", flowsBy(p, "sql", "weak").length >= 1);
+  });
+
   await run("java", "Java", (p) => {
     check("entry points found (>=4)", p.stats.entry_points >= 4, `got ${p.stats.entry_points}`);
     check("tainted flows found", p.stats.tainted_flows >= 3, `got ${p.stats.tainted_flows}`);
