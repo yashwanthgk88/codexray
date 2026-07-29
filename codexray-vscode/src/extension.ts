@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { getParsers } from "./analyzer/parser";
 import { buildModel, SourceFile } from "./analyzer/analyze";
@@ -7,6 +8,34 @@ import { buildPayload } from "./analyzer/payload";
 import { adapterForExt } from "./analyzer/adapters";
 import { getAiConfig, getApiKey, callProvider, secretKeyId, envKeyName, keyRequired } from "./ai/provider";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./ai/prompt";
+import {
+  emptyReview, setDisposition, mergeReviews, annotatePayload, ReviewFile, Disposition,
+} from "./review/store";
+import { loadReview, loadReviewFrom, saveReview } from "./review/io";
+import { buildMarkdown, buildHtml, buildSarif } from "./review/export";
+
+/** Reviewer identity: setting → OS user → "unknown". */
+function reviewerName(): string {
+  const cfg = vscode.workspace.getConfiguration("codexray.review").get<string>("reviewer");
+  if (cfg && cfg.trim()) return cfg.trim();
+  try { return os.userInfo().username || "unknown"; } catch { return "unknown"; }
+}
+
+const nowIso = (): string => new Date().toISOString();
+
+/** Write the review deliverable (md/html/sarif) into `<root>/.codexray/`. Returns the .md path. */
+function writeReviewReport(root: string, payload: any, review: ReviewFile): string {
+  const dir = path.join(root, ".codexray");
+  fs.mkdirSync(dir, { recursive: true });
+  const base = "review-report";
+  fs.writeFileSync(path.join(dir, `${base}.md`), buildMarkdown(payload, review), "utf-8");
+  fs.writeFileSync(path.join(dir, `${base}.html`), buildHtml(payload, review), "utf-8");
+  fs.writeFileSync(path.join(dir, `${base}.sarif.json`), JSON.stringify(buildSarif(payload, review), null, 2), "utf-8");
+  return path.join(dir, `${base}.md`);
+}
+
+/** Set by the most-recent panel so the palette export/merge commands can act. */
+let activeReview: { root: string; payload: any; getReview: () => ReviewFile; refresh: () => void } | null = null;
 
 const IGNORE_DIRS = new Set([
   ".git", "__pycache__", "node_modules", ".venv", "venv", "env",
@@ -112,6 +141,62 @@ export function activate(context: vscode.ExtensionContext): void {
           void vscode.window.showInformationMessage(`CodeXray: saved ${cfg.provider} API key.`);
         }
       })
+    ),
+    // Phase 2: export the review deliverable from the active X-ray panel.
+    vscode.commands.registerCommand("codexray.exportReview", () =>
+      guard(async () => {
+        if (!activeReview) {
+          void vscode.window.showWarningMessage("CodeXray: open an X-ray panel first, then export its review.");
+          return;
+        }
+        const mdPath = writeReviewReport(activeReview.root, activeReview.payload, activeReview.getReview());
+        const openIt = "Open Markdown";
+        const pick = await vscode.window.showInformationMessage(
+          "CodeXray: exported review report to .codexray/.", openIt
+        );
+        if (pick === openIt) {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(mdPath));
+          await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One });
+        }
+      })
+    ),
+    // Phase 4: merge another reviewer's review.json into this workspace's review.
+    vscode.commands.registerCommand("codexray.mergeReview", () =>
+      guard(async () => {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || !folders.length) {
+          void vscode.window.showErrorMessage("CodeXray: open a folder first.");
+          return;
+        }
+        let root = folders[0].uri.fsPath;
+        if (activeReview) root = activeReview.root;
+        const picked = await vscode.window.showOpenDialog({
+          title: "CodeXray: merge a review.json from another reviewer",
+          canSelectMany: false,
+          filters: { "Review JSON": ["json"] },
+        });
+        if (!picked || !picked.length) return;
+        const incoming = loadReviewFrom(picked[0].fsPath);
+        if (!incoming) {
+          void vscode.window.showErrorMessage("CodeXray: that file is not a valid CodeXray review.json.");
+          return;
+        }
+        const current =
+          loadReview(root) ||
+          emptyReview({ name: `${path.basename(root)} review`, reviewer: reviewerName(), createdAt: nowIso() }, nowIso());
+        const before = Object.keys(current.functions).length;
+        const merged = mergeReviews(current, incoming);
+        saveReview(root, merged);
+        const after = Object.keys(merged.functions).length;
+        if (activeReview && activeReview.root === root) {
+          // Live-refresh the open panel with the merged review on disk.
+          const fresh = loadReview(root);
+          if (fresh) { Object.assign(activeReview.getReview(), fresh); activeReview.refresh(); }
+        }
+        void vscode.window.showInformationMessage(
+          `CodeXray: merged review (${before} → ${after} dispositioned functions). Re-run X-ray if the panel isn't open.`
+        );
+      })
     )
   );
 }
@@ -195,6 +280,13 @@ async function analyzeAndShow(
       const payload = buildPayload(model);
       log(`analysis done: ${JSON.stringify(model.stats)}`);
 
+      // Review instrument: load persisted review (or start one) and overlay it.
+      let review: ReviewFile =
+        loadReview(root) ||
+        emptyReview({ name: `${path.basename(root)} review`, reviewer: reviewerName(), createdAt: nowIso() }, nowIso());
+      annotatePayload(payload, review);
+      log(`review: ${payload.review.completeness.reviewed}/${payload.review.completeness.total} reviewed, ${payload.review.completeness.stale} stale`);
+
       const panel = vscode.window.createWebviewPanel(
         "codexray",
         `CodeXray · ${path.basename(root)}`,
@@ -236,6 +328,55 @@ async function analyzeAndShow(
             await vscode.commands.executeCommand("codexray.setAiKey");
             return;
           }
+          if (msg.type === "mergeRequest") {
+            await vscode.commands.executeCommand("codexray.mergeReview");
+            return;
+          }
+          if (msg.type === "disposition" && typeof msg.key === "string") {
+            // Phase 1: reviewer sets a disposition on a function. Persist + re-overlay.
+            const codeHash = payload.funcs[msg.key]?.codeHash || "";
+            review = setDisposition(review, msg.key, {
+              status: msg.status as Disposition,
+              note: typeof msg.note === "string" ? msg.note : undefined,
+              reviewer: reviewerName(),
+              codeHash,
+              now: nowIso(),
+            });
+            try {
+              saveReview(root, review);
+            } catch (e) {
+              log("saveReview failed: " + String(e));
+              void vscode.window.showErrorMessage(`CodeXray: could not save review (${String(e)})`);
+            }
+            annotatePayload(payload, review); // recompute completeness + clear staleness
+            void panel.webview.postMessage({
+              type: "reviewUpdated",
+              key: msg.key,
+              review: payload.funcs[msg.key].review,
+              completeness: payload.review.completeness,
+              engagement: payload.review.engagement,
+            });
+            return;
+          }
+          if (msg.type === "export") {
+            try {
+              const mdPath = writeReviewReport(root, payload, review);
+              log(`exported review report to ${path.dirname(mdPath)}`);
+              const openIt = "Open Markdown";
+              const pick = await vscode.window.showInformationMessage(
+                "CodeXray: exported review report to .codexray/ (review-report.md, .html, .sarif.json).",
+                openIt
+              );
+              if (pick === openIt) {
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(mdPath));
+                await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One });
+              }
+            } catch (e) {
+              log("export failed: " + String(e));
+              void vscode.window.showErrorMessage(`CodeXray: export failed (${String(e)})`);
+            }
+            return;
+          }
           if (msg.type === "explain" && msg.flow) {
             const id = msg.id;
             try {
@@ -264,6 +405,34 @@ async function analyzeAndShow(
         undefined,
         context.subscriptions
       );
+
+      // Expose this panel's review to the palette commands (export / merge).
+      activeReview = {
+        root,
+        payload,
+        getReview: () => review,
+        refresh: () => {
+          annotatePayload(payload, review);
+          void panel.webview.postMessage({
+            type: "reviewReloaded",
+            funcs: payload.funcs,
+            completeness: payload.review.completeness,
+            engagement: payload.review.engagement,
+          });
+        },
+      };
+      panel.onDidDispose(() => { if (activeReview && activeReview.root === root) activeReview = null; },
+        undefined, context.subscriptions);
+      panel.onDidChangeViewState((e) => {
+        if (e.webviewPanel.active) {
+          activeReview = { root, payload, getReview: () => review, refresh: () => {
+            annotatePayload(payload, review);
+            void panel.webview.postMessage({ type: "reviewReloaded", funcs: payload.funcs,
+              completeness: payload.review.completeness, engagement: payload.review.engagement });
+          } };
+        }
+      }, undefined, context.subscriptions);
+
       log("webview rendered");
     }
   );

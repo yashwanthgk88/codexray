@@ -25,6 +25,30 @@ Python, PHP, JDK, .NET SDK or Node install needed to analyse those sources.
    - **Blind spots** — the calls (`eval`, reflection, dynamic import…) the X-ray
      cannot follow, listed explicitly rather than silently skipped.
 
+## The review instrument
+
+CodeXray is not just a viewer — it **records the review**. State lives in
+`.codexray/review.json`, committed to your repo, so reviews are diffable, PR-able,
+and travel with the code (review-as-code).
+
+- **Disposition every function** — `unreviewed → in progress → safe / finding /
+  needs-info / false-positive`, with a reviewer note. Set it from the Coverage
+  Ledger or the flow detail pane, or by keyboard (`s` safe, `f` finding, `i`
+  needs-info, `p` false-positive; `j`/`k` to move; `e` to export).
+- **Completeness meter** — the header shows `reviewed / total` and a progress bar,
+  so "did we look at everything?" has a real answer.
+- **Staleness (re-review)** — each disposition stores a hash of the function body.
+  When the code changes, that disposition is flagged **⚠ stale** and the export
+  lists it — a one-shot scan becomes an ongoing review relationship with the code.
+- **Auditable export** — **CodeXray: Export Review Report** writes
+  `review-report.md` (git/PR), `.html` (self-contained, client-facing) and
+  `.sarif.json` (tooling) into `.codexray/`. The deliverable states the three
+  things scanners don't: what was reviewed, **what was explicitly not** (blind
+  spots + un-reviewed sink-bearing functions), and by whom.
+- **Multi-reviewer** — **CodeXray: Merge Another Reviewer's Review** merges a
+  second `review.json`; the more recent disposition per function wins, attribution
+  preserved. Set your name via `codexray.review.reviewer` (defaults to OS user).
+
 ## Supported languages
 
 | Language | Extensions | Entry points | Taint chains |

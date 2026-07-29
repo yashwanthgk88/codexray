@@ -1,5 +1,6 @@
 /** Serialize the analysis Model into the JSON payload the webview report renders. */
 import { Model, FunctionInfo } from "./model";
+import { hashCode } from "../review/store";
 
 const leaf = (key: string): string => (key.includes("::") ? key.split("::").pop()! : key);
 
@@ -173,6 +174,7 @@ function funcToJson(model: Model, key: string, fi: FunctionInfo): any {
     children,
     nsinks: fi.sinks.length,
     nblind: fi.blindspots.length,
+    codeHash: hashCode(body.map((b) => b.t).join("\n")),
   };
 }
 

@@ -285,6 +285,29 @@
   .verdict.bad { background: rgba(241,76,76,.10); border: 1px solid rgba(241,76,76,.35); }
   .verdict.warn { background: rgba(204,167,0,.10); border: 1px solid rgba(204,167,0,.32); }
   .verdict.ok { background: rgba(137,209,133,.10); border: 1px solid rgba(137,209,133,.35); }
+  /* ---- Review instrument ---- */
+  .reviewbar { display:flex; align-items:center; gap:14px; padding:8px 20px; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; }
+  .reviewbar .eng { font-weight:600; }
+  .reviewbar .meter { flex:1; min-width:160px; height:8px; border-radius:5px; background:rgba(127,127,127,.22); overflow:hidden; }
+  .reviewbar .meter > i { display:block; height:100%; background:linear-gradient(90deg,#3fb0ac,#89b4fa); }
+  .reviewbar .pct { font-variant-numeric:tabular-nums; color:var(--muted); }
+  .reviewbar .stale { color:#cca700; font-size:12px; }
+  .reviewbar button { background:var(--accent,#2d6cdf); color:#fff; border:0; border-radius:5px; padding:5px 11px; cursor:pointer; font-size:12px; }
+  .reviewbar button.ghost { background:transparent; color:var(--fg); border:1px solid var(--border); }
+  .disp { display:inline-flex; align-items:center; gap:5px; }
+  .disp select { background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:4px; padding:2px 4px; font-size:12px; }
+  .disp .note-btn { cursor:pointer; color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:11px; }
+  .disp .note-btn.has { color:#89b4fa; border-color:#89b4fa; }
+  .dbadge { font-size:11px; padding:1px 6px; border-radius:9px; border:1px solid; white-space:nowrap; }
+  .d-unreviewed { color:var(--muted); border-color:var(--border); }
+  .d-reviewing  { color:#4daafc; border-color:#4daafc; }
+  .d-safe       { color:#89d185; border-color:#89d185; }
+  .d-finding    { color:#f14c4c; border-color:#f14c4c; }
+  .d-needs_info { color:#cca700; border-color:#cca700; }
+  .d-false_positive { color:#7a7a7a; border-color:#7a7a7a; }
+  .stale-tag { color:#cca700; font-size:11px; margin-left:4px; }
+  .detail-disp { margin:12px 20px 0; padding:9px 12px; border:1px solid var(--border); border-radius:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .kbd { font:11px monospace; background:rgba(127,127,127,.18); border-radius:3px; padding:1px 4px; }
 </style>
 </head>
 <body>
@@ -293,6 +316,7 @@
   <div class="stats" id="stats"></div>
   <div class="langs" id="langs"></div>
 </header>
+<div class="reviewbar" id="reviewbar"></div>
 <div class="tabs" id="tabs">
   <div class="tab on" data-view="flows">Taint Flows <span class="n" id="tab-flows-n"></span></div>
   <div class="tab" data-view="inventory">Inventory <span class="n" id="tab-inv-n"></span></div>
@@ -369,6 +393,93 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (m) => ({ "&": 
 const open = (file, line) => vscode.postMessage({ type: "open", file, line });
 
 let state = { cat: null, taintOnly: false, undefendedOnly: false, q: "", selected: null };
+
+// ================= Review instrument (dispositions, meter, export) =================
+const DISP_LABEL = {
+  unreviewed: "Unreviewed", reviewing: "In progress", safe: "Safe",
+  finding: "Finding", needs_info: "Needs info", false_positive: "False positive",
+};
+const DISP_ORDER = ["unreviewed", "reviewing", "safe", "finding", "needs_info", "false_positive"];
+const DISP_KEY = { u: "unreviewed", r: "reviewing", s: "safe", f: "finding", i: "needs_info", p: "false_positive" };
+function reviewOf(key) {
+  return (DATA.funcs[key] && DATA.funcs[key].review) || { status: "unreviewed", note: "", stale: false };
+}
+function dbadge(key) {
+  const r = reviewOf(key);
+  return `<span class="dbadge d-${r.status}">${DISP_LABEL[r.status]}</span>${r.stale ? '<span class="stale-tag" title="Code changed since this was reviewed">⚠ stale</span>' : ""}`;
+}
+function dispControl(key) {
+  const r = reviewOf(key);
+  const opts = DISP_ORDER.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${DISP_LABEL[s]}</option>`).join("");
+  const hasNote = r.note ? "has" : "";
+  return `<span class="disp" data-key="${esc(key)}"><select class="disp-sel">${opts}</select>` +
+    `<span class="note-btn ${hasNote}" title="Add / edit reviewer note">note${r.note ? " ✎" : ""}</span></span>`;
+}
+function postDisposition(key, status, note) {
+  vscode.postMessage({ type: "disposition", key, status, note: note == null ? undefined : note });
+}
+// Delegated: disposition dropdown change anywhere in the document.
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest && e.target.closest("select.disp-sel");
+  if (!sel) return;
+  const key = sel.closest(".disp").getAttribute("data-key");
+  postDisposition(key, sel.value, reviewOf(key).note || "");
+});
+// Delegated: note editor.
+document.addEventListener("click", (e) => {
+  const nb = e.target.closest && e.target.closest(".note-btn");
+  if (!nb) return;
+  const key = nb.closest(".disp").getAttribute("data-key");
+  openNoteModal(key);
+});
+let noteModalEl = null;
+function openNoteModal(key) {
+  const r = reviewOf(key);
+  if (noteModalEl) noteModalEl.remove();
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99;display:flex;align-items:center;justify-content:center;";
+  wrap.innerHTML = `<div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;width:min(520px,90vw)">
+    <div style="font-weight:600;margin-bottom:8px">Reviewer note — <span class="mono">${esc(key.split("::").pop())}</span></div>
+    <textarea id="noteTa" style="width:100%;height:120px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:8px;font:13px sans-serif">${esc(r.note || "")}</textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button id="noteCancel" class="ghost" style="background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 11px;cursor:pointer">Cancel</button>
+      <button id="noteSave" style="background:#2d6cdf;color:#fff;border:0;border-radius:5px;padding:5px 11px;cursor:pointer">Save note</button>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  noteModalEl = wrap;
+  const ta = wrap.querySelector("#noteTa");
+  ta.focus();
+  wrap.querySelector("#noteCancel").addEventListener("click", () => { wrap.remove(); noteModalEl = null; });
+  wrap.querySelector("#noteSave").addEventListener("click", () => {
+    const status = r.status === "unreviewed" ? "reviewing" : r.status; // a note implies work started
+    postDisposition(key, status, ta.value);
+    wrap.remove(); noteModalEl = null;
+  });
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) { wrap.remove(); noteModalEl = null; } });
+}
+function renderReviewBar() {
+  const el = document.getElementById("reviewbar");
+  const rv = DATA.review || { engagement: { name: "review", reviewer: "" }, completeness: { total: 0, reviewed: 0, percent: 0, stale: 0 } };
+  const c = rv.completeness;
+  el.innerHTML =
+    `<span class="eng">${esc(rv.engagement.name)}</span>` +
+    `<span class="pct">${c.reviewed}/${c.total} reviewed</span>` +
+    `<span class="meter"><i style="width:${c.percent}%"></i></span>` +
+    `<span class="pct">${c.percent}%</span>` +
+    (c.stale ? `<span class="stale">⚠ ${c.stale} stale</span>` : "") +
+    `<button id="exportBtn" title="Write review-report.md / .html / .sarif.json to .codexray/">⬇ Export report</button>` +
+    `<button id="mergeBtn" class="ghost" title="Merge another reviewer's review.json">Merge</button>`;
+  document.getElementById("exportBtn").addEventListener("click", () => vscode.postMessage({ type: "export" }));
+  document.getElementById("mergeBtn").addEventListener("click", () => vscode.postMessage({ type: "mergeRequest" }));
+}
+// Refresh whatever view is showing a disposition after the host confirms a change.
+function refreshReviewViews(changedKey) {
+  renderReviewBar();
+  if (ledgerRendered && document.getElementById("view-ledger").style.display !== "none") renderLedger();
+  const f = DATA.flows.find((x) => x.id === state.selected);
+  if (f && (changedKey == null || f.sinkKey === changedKey)) renderDetail();
+}
+// =====================================================================================
 
 document.getElementById("root").textContent = DATA.root || "";
 const s = DATA.stats;
@@ -602,6 +713,11 @@ function renderDetail() {
     </div>
     ${pipelineHtml(f)}
     ${verdictHtml(f)}
+    <div class="detail-disp">
+      <b>Your disposition:</b> ${f.sinkKey ? dispControl(f.sinkKey) : "—"}
+      ${f.sinkKey ? dbadge(f.sinkKey) : ""}
+      <span style="color:var(--muted);font-size:12px;margin-left:auto">keys: <span class="kbd">s</span> safe · <span class="kbd">f</span> finding · <span class="kbd">i</span> needs-info · <span class="kbd">p</span> false-pos</span>
+    </div>
     <div class="code-panel">
       <h3>${esc(f.sinkFunc)} — <a data-open data-file="${esc(f.sinkFile)}" data-l="${f.sinkLine}">${esc(f.sinkFile)}</a></h3>
       <div class="code" id="code">${codeHtml || '<div class="empty">Source not available.</div>'}</div>
@@ -677,13 +793,14 @@ function renderLedger() {
     const [label, blurb] = LEDGER_META[bucket] || [bucket, ""];
     html += `<div class="ledger-grp"><h3>${esc(label)} <span class="n">${rows.length} — ${esc(blurb)}</span></h3>`;
     if (!rows.length) { html += `<div class="intro" style="margin:0">none</div></div>`; continue; }
-    html += `<table class="grid"><thead><tr><th>Function</th><th>Location</th><th>Sink categories</th><th>Blind</th></tr></thead><tbody>`;
+    html += `<table class="grid"><thead><tr><th>Function</th><th>Location</th><th>Sink categories</th><th>Blind</th><th>Disposition</th></tr></thead><tbody>`;
     for (const r of rows.slice(0, 500)) {
       html += `<tr>
         <td class="mono">${esc(r.name)}</td>
         <td><a class="loc" data-open data-file="${esc(r.file)}" data-l="${r.line}">${esc(r.file)}:${r.line} &#8614;</a></td>
         <td>${(r.cats || []).map((c) => `<span class="pill">${esc(c)}</span>`).join(" ") || "<span style='color:var(--muted)'>—</span>"}</td>
         <td>${r.nblind ? `<span class="pill blind">${r.nblind}</span>` : ""}</td>
+        <td>${r.key ? dispControl(r.key) : ""}</td>
       </tr>`;
     }
     html += `</tbody></table>`;
@@ -870,11 +987,50 @@ window.addEventListener("message", (e) => {
   const m = e.data || {};
   if (m.type === "insight" && m.id != null) {
     insights[m.id] = { status: "done", markdown: m.markdown, model: m.model };
-  } else if (m.type === "insightError" && m.id != null) {
+    const f = DATA.flows.find((x) => x.id === state.selected);
+    if (f && f.id === m.id) renderAi(f);
+    return;
+  }
+  if (m.type === "insightError" && m.id != null) {
     insights[m.id] = { status: "error", error: m.error, needsKey: m.needsKey };
-  } else return;
+    const f = DATA.flows.find((x) => x.id === state.selected);
+    if (f && f.id === m.id) renderAi(f);
+    return;
+  }
+  if (m.type === "reviewUpdated" && m.key) {
+    if (DATA.funcs[m.key]) DATA.funcs[m.key].review = m.review;
+    if (m.completeness) DATA.review.completeness = m.completeness;
+    if (m.engagement) DATA.review.engagement = m.engagement;
+    refreshReviewViews(m.key);
+    return;
+  }
+  if (m.type === "reviewReloaded") {
+    if (m.funcs) for (const k of Object.keys(m.funcs)) if (DATA.funcs[k]) DATA.funcs[k].review = m.funcs[k].review;
+    if (m.completeness) DATA.review.completeness = m.completeness;
+    if (m.engagement) DATA.review.engagement = m.engagement;
+    refreshReviewViews(null);
+    return;
+  }
+});
+
+// ---- Keyboard: disposition on the selected flow's sink function ----
+document.addEventListener("keydown", (e) => {
+  if (noteModalEl) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+  const k = e.key.toLowerCase();
+  if (k === "e") { vscode.postMessage({ type: "export" }); return; }
   const f = DATA.flows.find((x) => x.id === state.selected);
-  if (f && f.id === m.id) renderAi(f);
+  if (!f || !f.sinkKey) return;
+  if (DISP_KEY[k]) { postDisposition(f.sinkKey, DISP_KEY[k], reviewOf(f.sinkKey).note || ""); e.preventDefault(); return; }
+  // j/k move through the visible flow list.
+  if (k === "j" || k === "k") {
+    const vis = visibleFlows();
+    const idx = vis.findIndex((x) => x.id === state.selected);
+    const next = k === "j" ? Math.min(vis.length - 1, idx + 1) : Math.max(0, idx - 1);
+    if (vis[next]) { state.selected = vis[next].id; renderList(); renderDetail(); }
+    e.preventDefault();
+  }
 });
 
 // explainer show/hide
@@ -884,6 +1040,7 @@ document.getElementById("infoToggle").addEventListener("click", () => {
   explainerEl.style.display = explainerEl.style.display === "none" ? "" : "none";
 });
 
+renderReviewBar();
 renderFilters();
 renderList();
 if (DATA.flows.length) { state.selected = DATA.flows[0].id; renderList(); renderDetail(); }

@@ -1,8 +1,8 @@
 {
   "name": "codexray",
   "displayName": "CodeXray",
-  "description": "A source-code X-ray for manual security review of Python, PHP, Java, C#/.NET and TypeScript. Not a scanner — surfaces taint flows (source → sink), entry points, blind spots, and a coverage ledger. The analyst decides.",
-  "version": "0.7.0",
+  "description": "The manual security-review instrument for Python, PHP, Java, C#/.NET and TypeScript. Not a scanner — surfaces taint flows (source → sink), entry points and blind spots, then lets you disposition every function, track coverage, and export an auditable review (Markdown/HTML/SARIF). The analyst decides; the review lives in your repo.",
+  "version": "0.8.0",
   "publisher": "codexray",
   "license": "MIT",
   "repository": {
@@ -77,11 +77,27 @@
         "command": "codexray.setAiKey",
         "title": "Set AI API Key",
         "category": "CodeXray"
+      },
+      {
+        "command": "codexray.exportReview",
+        "title": "Export Review Report",
+        "category": "CodeXray",
+        "icon": "$(export)"
+      },
+      {
+        "command": "codexray.mergeReview",
+        "title": "Merge Another Reviewer's Review",
+        "category": "CodeXray"
       }
     ],
     "configuration": {
       "title": "CodeXray",
       "properties": {
+        "codexray.review.reviewer": {
+          "type": "string",
+          "default": "",
+          "description": "Name recorded as the reviewer in review dispositions and exports. Blank = your OS username."
+        },
         "codexray.ai.provider": {
           "type": "string",
           "enum": ["anthropic", "openai", "azure", "ollama"],
